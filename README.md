@@ -1,16 +1,17 @@
 <div align="center">
-  <img src="media/icon-rounded.png" alt="Icon" width="100">
-
-  <p>
-    <b>Dorsal</b>: an album-focused iOS/iPadOS music player for Jellyfin
-  </p>
-  
-  <!-- <a href="https://testflight.apple.com/join/xxx" target="_blank">
-    <img src="media/testflight.png" alt="TestFlight Icon" height="40">
-  </a> -->
-  <!-- <a href="https://apps.apple.com/app/xxx" target="_blank">
-    <img src="media/app-store.svg" alt="App Store Icon" height="40">
-  </a> -->
+  <div>
+    <div>
+      <img src="media/icon-rounded.png" alt="Icon" width="100">
+    </div>
+    <h3><b>Dorsal</b></h3>
+    <div>An album-focused iOS/iPadOS music player for Jellyfin.</div>
+    <div>Your digital record shelf and player.</div>
+  </div>
+  <br>
+  <div>
+    <a href="https://testflight.apple.com/join/p3cMepSH" target="_blank"><img src="media/testflight.png" alt="TestFlight Icon" height="40"></a>
+    <!-- <a href="https://apps.apple.com/app/xxx" target="_blank"><img src="media/app-store.svg" alt="App Store Icon" height="40"></a> -->
+  </div>
 </div>
 
 ### Features
