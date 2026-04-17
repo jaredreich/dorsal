@@ -369,9 +369,11 @@ struct SongRowView: View {
 
 struct SongInfoContextMenu: View {
     let song: Song
+    @ObservedObject private var downloadManager = DownloadManager.shared
 
     private var fileInfo: (format: String, size: String, bitrate: String)? {
-        guard let url = DownloadManager.shared.existingStorageUrl(for: song.id),
+        _ = downloadManager.cachedContentVersion
+        guard let url = downloadManager.existingStorageUrl(for: song.id),
               let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
               let fileSize = attrs[.size] as? Int64 else {
             return nil
