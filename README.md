@@ -10,7 +10,7 @@
   <br>
   <div>
     <a href="https://testflight.apple.com/join/p3cMepSH" target="_blank"><img src="media/testflight.png" alt="TestFlight Icon" height="40"></a>
-    <!-- <a href="https://apps.apple.com/app/xxx" target="_blank"><img src="media/app-store.svg" alt="App Store Icon" height="40"></a> -->
+    <a href="https://apps.apple.com/us/app/dorsal-music/id6762251157" target="_blank"><img src="media/app-store.svg" alt="App Store Icon" height="40"></a>
   </div>
 </div>
 
