@@ -348,10 +348,13 @@ class AudioPlayerManager: NSObject, ObservableObject {
         nowPlayingInfo[MPMediaItemPropertyTitle] = song.name
         nowPlayingInfo[MPMediaItemPropertyArtist] = song.artistName
         nowPlayingInfo[MPMediaItemPropertyAlbumTitle] = song.albumName
+        nowPlayingInfo[MPMediaItemPropertyAlbumArtist] = song.artistName
         nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = duration
         nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+        nowPlayingInfo[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+        MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
 
         if artworkChanged {
             let songId = song.id
