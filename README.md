@@ -54,16 +54,16 @@ Cached means the song is available offline, and Downloaded means every song on t
 - [x] English
 - [x] French
 - [x] German
-- [ ] Spanish
-- [ ] Dutch
-- [ ] Swedish
-- [ ] Norwegian
-- [ ] Finnish
-- [ ] Italian
-- [ ] Japanese
-- [ ] Portuguese (Brazil)
-- [ ] Portuguese (Portugal)
-- More... 
+- [x] Spanish
+- [x] Dutch
+- [x] Swedish
+- [x] Norwegian
+- [x] Finnish
+- [x] Italian
+- [x] Japanese
+- [x] Portuguese (Portugal)
+- [x] Portuguese (Brazil)
+- Request more!
 
 ### Screenshots
 
