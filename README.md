@@ -56,7 +56,7 @@ Please do not clone and redistribute on the App Store as a competitor, as this i
 - [x] Japanese
 - [x] Portuguese (Portugal)
 - [x] Portuguese (Brazil)
-- Request more!
+- [ ] Request more!
 
 ### Screenshots
 
