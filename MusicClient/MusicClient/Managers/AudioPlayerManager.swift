@@ -424,7 +424,9 @@ class AudioPlayerManager: NSObject, ObservableObject {
             pause()
         case .ended:
             guard let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
-            if AVAudioSession.InterruptionOptions(rawValue: optionsValue).contains(.shouldResume) {
+            try? AVAudioSession.sharedInstance().setActive(true)
+            if AVAudioSession.InterruptionOptions(rawValue: optionsValue).contains(.shouldResume),
+               currentSong != nil {
                 resume()
             }
         @unknown default:
