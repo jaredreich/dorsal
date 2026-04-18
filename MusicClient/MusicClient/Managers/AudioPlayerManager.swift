@@ -384,6 +384,10 @@ class AudioPlayerManager: NSObject, ObservableObject {
             self?.pause()
             return .success
         }
+        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            self?.togglePlayPause()
+            return .success
+        }
         commandCenter.nextTrackCommand.addTarget { [weak self] _ in
             Task { @MainActor [weak self] in self?.playNext() }
             return .success
