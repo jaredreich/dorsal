@@ -154,15 +154,23 @@ class AudioPlayerManager: NSObject, ObservableObject {
     }
 
     func play(song: Song, autoPlay: Bool = true) {
-        audioPlayer.stop()
-        audioPlayer.clearQueue()
-        nextEnqueuedSongId = nil
-        pendingPlaybackSongId = nil
-        hasTriggeredPrefetch = false
-        if !autoPlay { isPlaying = false }
-        currentTime = 0
-        duration = 0
-        isLoading = !DownloadManager.shared.isCached(songId: song.id)
+        let isCached = DownloadManager.shared.isCached(songId: song.id)
+
+        if isCached {
+            // Song is ready — stop current playback immediately
+            audioPlayer.stop()
+            audioPlayer.clearQueue()
+            nextEnqueuedSongId = nil
+            pendingPlaybackSongId = nil
+            hasTriggeredPrefetch = false
+            if !autoPlay { isPlaying = false }
+            currentTime = 0
+            duration = 0
+        } else {
+            // Song needs to download — keep current playback going, just show loading
+            isLoading = true
+            hasTriggeredPrefetch = false
+        }
 
         let songId = song.id
 
@@ -170,6 +178,16 @@ class AudioPlayerManager: NSObject, ObservableObject {
             do {
                 let cachedUrl = try await DownloadManager.shared.downloadAndCache(song)
                 guard self.playbackQueue.currentSong?.id == songId else { return }
+
+                // Stop current playback now that the new song is ready
+                if !isCached {
+                    self.audioPlayer.stop()
+                    self.audioPlayer.clearQueue()
+                    self.nextEnqueuedSongId = nil
+                    self.pendingPlaybackSongId = nil
+                    self.currentTime = 0
+                    self.duration = 0
+                }
 
                 self.isLoading = false
                 self.currentSong = song
