@@ -239,6 +239,14 @@ class DownloadManager: NSObject, ObservableObject {
         downloadingSongIds.remove(songId)
     }
 
+    func albumDownloadProgress(albumId: String) -> Double {
+        guard let metadata = loadAlbumMetadata(for: albumId) else { return 0 }
+        let total = metadata.songs.count
+        guard total > 0 else { return 0 }
+        let cached = metadata.songs.filter { cachedSongIds.contains($0.id) }.count
+        return Double(cached) / Double(total)
+    }
+
     func cancelAlbumDownload(albumId: String) {
         guard let pendingSongIds = pendingAlbumDownloads[albumId] else { return }
         for songId in pendingSongIds where !cachedSongIds.contains(songId) {

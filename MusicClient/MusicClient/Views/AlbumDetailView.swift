@@ -24,11 +24,6 @@ struct AlbumDetailView: View {
         }
     }
 
-    private var downloadProgress: Double {
-        guard !songs.isEmpty else { return 0 }
-        let cached = songs.filter { downloadManager.isCached(songId: $0.id) }.count
-        return Double(cached) / Double(songs.count)
-    }
 
     private var cachedSizeMB: Double {
         let totalBytes = songs.reduce(0) { total, song in
@@ -197,7 +192,7 @@ struct AlbumDetailView: View {
                     Button {
                         downloadManager.cancelAlbumDownload(albumId: album.id)
                     } label: {
-                        CircularDownloadProgress(progress: downloadProgress)
+                        CircularDownloadProgress(progress: downloadManager.albumDownloadProgress(albumId: album.id))
                     }
                 } else {
                     Button {
@@ -418,7 +413,7 @@ struct SongInfoContextMenu: View {
     }
 }
 
-private struct CircularDownloadProgress: View {
+struct CircularDownloadProgress: View {
     let progress: Double
 
     var body: some View {

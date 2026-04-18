@@ -92,7 +92,6 @@ struct LibraryView: View {
                                 NavigationLink(destination: AlbumDetailView(album: album)) {
                                     AlbumRowView(
                                         album: album,
-                                        isPinned: DownloadManager.shared.isPinned(albumId: album.id),
                                         hasCachedSongs: albumCoordinator.albumsWithCachedSongs.contains(album.id)
                                     )
                                 }
@@ -154,7 +153,6 @@ struct LibraryView: View {
                                 NavigationLink(destination: AlbumDetailView(album: album)) {
                                     AlbumRowView(
                                         album: album,
-                                        isPinned: DownloadManager.shared.isPinned(albumId: album.id),
                                         hasCachedSongs: albumCoordinator.albumsWithCachedSongs.contains(album.id)
                                     )
                                 }
@@ -263,8 +261,8 @@ struct LibraryView: View {
 
 struct AlbumRowView: View {
     let album: Album
-    let isPinned: Bool
     let hasCachedSongs: Bool
+    @ObservedObject private var downloadManager = DownloadManager.shared
     @ObservedObject private var themeManager = ThemeManager.shared
 
     var body: some View {
@@ -290,7 +288,9 @@ struct AlbumRowView: View {
 
             Spacer()
 
-            if isPinned {
+            if downloadManager.downloadingAlbumIds.contains(album.id) {
+                CircularDownloadProgress(progress: downloadManager.albumDownloadProgress(albumId: album.id))
+            } else if downloadManager.isPinned(albumId: album.id) {
                 Image(systemName: "circle.fill")
                     .foregroundColor(.appAccent)
                     .font(.system(size: 8))
