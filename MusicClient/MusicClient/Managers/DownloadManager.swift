@@ -12,11 +12,20 @@ class DownloadManager: NSObject, ObservableObject {
     @Published var activeDownloadCount: Int = 0
     @Published var cachedContentVersion: Int = 0
 
+    // Song IDs that finished downloading in the current session
     private var completedSongs: Set<String> = []
+    // Song IDs with files on disk
     private var cachedSongIds: Set<String> = []
+    // Tracks which song IDs remain for each active album download
     private var pendingAlbumDownloads: [String: Set<String>] = [:]
+    // Maps song ID to URLSessionDownloadTask (for cancelling individual in-flight song downloads)
     private var activeDownloads: [String: URLSessionDownloadTask] = [:]
+    // Maps song ID to CheckedContinuation (bridges callback-based URLSession to async/await)
     private var downloadContinuations: [String: CheckedContinuation<URL, Error>] = [:]
+    // Albums waiting to start downloading (queued but not yet active)
+    private var albumDownloadQueue: [(Album, [Song])] = []
+    // Whether an album is currently being processed from the queue
+    private var isProcessingAlbumQueue = false
 
     private lazy var urlSession: URLSession = {
         let config = URLSessionConfiguration.background(withIdentifier: "com.jaredreich.download")
@@ -189,25 +198,44 @@ class DownloadManager: NSObject, ObservableObject {
         saveAlbumMetadata(albumId: album.id, album: album, songs: songs)
         downloadAlbumArt(for: album)
 
-        // Determine which songs need to complete before pinning
-        pendingAlbumDownloads[album.id] = Set(songs.filter { !isCached(songId: $0.id) }.map { $0.id })
+        let uncachedSongIds = Set(songs.filter { !isCached(songId: $0.id) }.map { $0.id })
+
+        if uncachedSongIds.isEmpty {
+            // All songs are already cached, can pin immediately, no need to queue
+            pinnedAlbums.insert(album.id)
+            savePinnedItems()
+            return
+        }
+
+        pendingAlbumDownloads[album.id] = uncachedSongIds
         downloadingAlbumIds.insert(album.id)
 
-        // Mark uncached songs as downloading so spinners show right away
-        downloadingSongIds.formUnion(pendingAlbumDownloads[album.id] ?? [])
+        // Queue the album and process sequentially
+        albumDownloadQueue.append((album, songs))
+        processNextAlbumDownload()
+    }
 
-        // Download songs sequentially so they finish one at a time / in order
+    private func processNextAlbumDownload() {
+        guard !isProcessingAlbumQueue, !albumDownloadQueue.isEmpty else { return }
+        isProcessingAlbumQueue = true
+
+        let (album, songs) = albumDownloadQueue.removeFirst()
+
+        // Mark this album's uncached songs as downloading
+        downloadingSongIds.formUnion(pendingAlbumDownloads[album.id] ?? [])
+        activeDownloadCount = activeDownloads.count
+
         Task {
             for song in songs {
                 guard self.downloadingAlbumIds.contains(album.id) else { break }
                 _ = try? await downloadSong(song, awaitCompletion: true)
             }
+
+            await MainActor.run {
+                self.isProcessingAlbumQueue = false
+                self.processNextAlbumDownload()
+            }
         }
-
-        // Check in case all songs were already cached
-        checkPendingAlbumDownloads()
-
-        activeDownloadCount = activeDownloads.count
     }
 
     private func downloadAlbumArt(for album: Album) {
@@ -248,6 +276,9 @@ class DownloadManager: NSObject, ObservableObject {
     }
 
     func cancelAlbumDownload(albumId: String) {
+        // Remove from queue if not yet started
+        albumDownloadQueue.removeAll { $0.0.id == albumId }
+
         guard let pendingSongIds = pendingAlbumDownloads[albumId] else { return }
         for songId in pendingSongIds where !cachedSongIds.contains(songId) {
             cancelDownload(songId: songId)
