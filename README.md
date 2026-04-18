@@ -42,13 +42,6 @@ To get the app for free, you are encouraged to clone and install on your own iOS
 
 Please do not clone and redistribute on the App Store as a competitor, as this is just not a nice thing to do.
 
-### FAQ
-
-<details>
-<summary>What is the difference between "Cached" and "Downloaded"?</summary>
-Cached means the song is available offline, and Downloaded means every song on the entire album is cached and protected from cache clearing.
-</details>
-
 ### Localization
 
 - [x] English
