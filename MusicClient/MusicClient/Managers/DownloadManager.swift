@@ -136,7 +136,7 @@ class DownloadManager: NSObject, ObservableObject {
         }
     }
 
-    private func loadAlbumMetadata(for albumId: String) -> AlbumMetadata? {
+    func loadAlbumMetadata(for albumId: String) -> AlbumMetadata? {
         let url = getAlbumMetadataUrl(for: albumId)
 
         guard fileManager.fileExists(atPath: url.path) else {

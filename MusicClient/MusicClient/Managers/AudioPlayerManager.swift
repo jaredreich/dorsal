@@ -51,6 +51,18 @@ class AudioPlayerManager: NSObject, ObservableObject {
         setupRemoteTransportControls()
         setupInterruptionHandling()
         startTimeTracking()
+        restorePlaybackState()
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+    }
+
+    @objc private func appDidEnterBackground() {
+        savePlaybackState()
     }
 
     private func setupAudioSession() {
@@ -283,6 +295,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
         lastArtworkUrl = nil
         playbackQueue.clear()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        clearSavedPlaybackState()
     }
 
     private func startTimeTracking() {
@@ -390,6 +403,81 @@ class AudioPlayerManager: NSObject, ObservableObject {
                 self.lastArtworkUrl = currentArtworkUrl
             }
         }
+    }
+
+    private func savePlaybackState() {
+        clearSavedPlaybackState()
+        guard let song = currentSong else { return }
+
+        let queueSongIds = playbackQueue.queue.map { $0.id }
+        UserDefaults.standard.set(song.id, forKey: "savedSongId")
+        UserDefaults.standard.set(song.albumId, forKey: "savedAlbumId")
+        UserDefaults.standard.set(queueSongIds, forKey: "savedQueueSongIds")
+        UserDefaults.standard.set(playbackQueue.currentIndex, forKey: "savedQueueIndex")
+        UserDefaults.standard.set(currentTime, forKey: "savedPlaybackTime")
+    }
+
+    private func restorePlaybackState() {
+        guard let songId = UserDefaults.standard.string(forKey: "savedSongId"),
+              let albumId = UserDefaults.standard.string(forKey: "savedAlbumId"),
+              let queueSongIds = UserDefaults.standard.stringArray(forKey: "savedQueueSongIds"),
+              !queueSongIds.isEmpty else {
+            clearSavedPlaybackState()
+            return
+        }
+
+        let savedIndex = UserDefaults.standard.integer(forKey: "savedQueueIndex")
+        let savedTime = UserDefaults.standard.double(forKey: "savedPlaybackTime")
+
+        // Look up songs from album metadata
+        guard let metadata = DownloadManager.shared.loadAlbumMetadata(for: albumId) else {
+            clearSavedPlaybackState()
+            return
+        }
+
+        // Rebuild queue in saved order, matching by ID
+        let songLookup = Dictionary(uniqueKeysWithValues: metadata.songs.map { ($0.id, $0) })
+        let restoredQueue = queueSongIds.compactMap { songLookup[$0] }
+
+        // Verify the current song is cached and in the restored queue
+        guard savedIndex < restoredQueue.count,
+              restoredQueue[savedIndex].id == songId,
+              DownloadManager.shared.isCached(songId: songId) else {
+            clearSavedPlaybackState()
+            return
+        }
+
+        let song = restoredQueue[savedIndex]
+
+        guard let cachedUrl = DownloadManager.shared.existingStorageUrl(for: songId) else {
+            clearSavedPlaybackState()
+            return
+        }
+
+        // Restore queue and play paused at saved position
+        playbackQueue.setQueue(restoredQueue, startIndex: savedIndex)
+        currentSong = song
+        pendingPlaybackSongId = songId
+
+        do {
+            try audioPlayer.play(makeDecoder(for: cachedUrl))
+            audioPlayer.pause()
+            audioPlayer.seek(time: savedTime)
+            currentTime = savedTime
+            duration = audioPlayer.time?.total ?? song.duration ?? 0
+            isPlaying = false
+            updateNowPlayingInfo()
+        } catch {
+            clearSavedPlaybackState()
+        }
+    }
+
+    private func clearSavedPlaybackState() {
+        UserDefaults.standard.removeObject(forKey: "savedSongId")
+        UserDefaults.standard.removeObject(forKey: "savedAlbumId")
+        UserDefaults.standard.removeObject(forKey: "savedQueueSongIds")
+        UserDefaults.standard.removeObject(forKey: "savedQueueIndex")
+        UserDefaults.standard.removeObject(forKey: "savedPlaybackTime")
     }
 
     private func setupRemoteTransportControls() {
