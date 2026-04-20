@@ -303,6 +303,53 @@ class DownloadManager: NSObject, ObservableObject {
         return pinnedAlbums.contains(albumId)
     }
 
+    // Removes everything that is not on the server
+    func cleanupStaleAlbums(serverAlbumIds: Set<String>) {
+        guard !serverAlbumIds.isEmpty,
+              let metadataFiles = try? fileManager.contentsOfDirectory(at: albumsDirectory, includingPropertiesForKeys: nil) else { return }
+
+        let diskAlbumIds = Set(
+            metadataFiles
+                .filter { $0.pathExtension == "json" }
+                .map { $0.deletingPathExtension().lastPathComponent }
+        )
+
+        let staleAlbumIds = diskAlbumIds.subtracting(serverAlbumIds)
+        guard !staleAlbumIds.isEmpty else { return }
+
+        for albumId in staleAlbumIds {
+            // Load song IDs before deleting metadata
+            let songIds = loadAlbumMetadata(for: albumId)?.songs.map { $0.id } ?? []
+
+            // Delete cached songs
+            for songId in songIds {
+                if let url = existingStorageUrl(for: songId) {
+                    try? fileManager.removeItem(at: url)
+                }
+                cachedSongIds.remove(songId)
+            }
+
+            // Delete metadata and artwork
+            let metadataUrl = getAlbumMetadataUrl(for: albumId)
+            let artworkUrl = getAlbumArtUrl(for: albumId)
+            try? fileManager.removeItem(at: metadataUrl)
+            try? fileManager.removeItem(at: artworkUrl)
+
+            // Clean up download state
+            cancelAlbumDownload(albumId: albumId)
+            pinnedAlbums.remove(albumId)
+
+        }
+
+        // Clean up recently played
+        for albumId in staleAlbumIds {
+            removeFromRecentlyPlayed(albumId: albumId)
+        }
+
+        savePinnedItems()
+        cachedContentVersion += 1
+    }
+
     // Checks if all songs for any pending album download are now cached
     // If yes, pins the album and removes it from the pending list
     private func checkPendingAlbumDownloads() {
@@ -1116,6 +1163,10 @@ class AlbumStateCoordinator: ObservableObject {
     // Fetch albums from server (delegates to JellyfinService)
     func fetchAlbums() async throws {
         try await jellyfinService.fetchAlbums()
+
+        // Clean up everything that was removed from the server
+        let serverAlbumIds = Set(jellyfinService.albums.map { $0.id })
+        downloadManager.cleanupStaleAlbums(serverAlbumIds: serverAlbumIds)
 
         // Fetch all songs in the background to make them searchable
         Task {
