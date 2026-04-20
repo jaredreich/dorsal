@@ -193,6 +193,7 @@ struct AlbumDetailView: View {
                         downloadManager.cancelAlbumDownload(albumId: album.id)
                     } label: {
                         CircularDownloadProgress(progress: downloadManager.albumDownloadProgress(albumId: album.id))
+                            .frame(width: 20, height: 20)
                     }
                 } else {
                     Button {
@@ -410,22 +411,5 @@ struct SongInfoContextMenu: View {
         } else {
             Text(verbatim: "\(String(localized: "general.cached")): ✗")
         }
-    }
-}
-
-struct CircularDownloadProgress: View {
-    let progress: Double
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .stroke(Color.secondary.opacity(0.3), lineWidth: 2.5)
-            Circle()
-                .trim(from: 0, to: progress)
-                .stroke(Color.appAccent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .animation(.linear(duration: 0.3), value: progress)
-        }
-        .frame(width: 20, height: 20)
     }
 }

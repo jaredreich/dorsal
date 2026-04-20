@@ -33,6 +33,7 @@
 		FE35D4BD2F7B202800382932 /* AppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE35D4BC2F7B202800382932 /* AppearanceSettingsView.swift */; };
 		FE35D4C12F7B3AD700382932 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = FE35D4C02F7B3AD700382932 /* Localizable.xcstrings */; };
 		FE35D4C42F8462E600382932 /* SFBAudioEngine in Frameworks */ = {isa = PBXBuildFile; productRef = FE35D4C32F8462E600382932 /* SFBAudioEngine */; };
+		FE486F6D2F96E08B00A21374 /* CircularDownloadProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE486F6B2F96E08B00A21374 /* CircularDownloadProgress.swift */; };
 		FE9828BF2F516AF7007EA1BC /* Intents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FE9828BE2F516AF7007EA1BC /* Intents.framework */; };
 		FE9828C62F516AF7007EA1BC /* MusicClientIntents.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FE9828BC2F516AF7007EA1BC /* MusicClientIntents.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		FE9828DA2F516F82007EA1BC /* AlbumMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE9828D92F516F82007EA1BC /* AlbumMetadata.swift */; };
@@ -99,6 +100,7 @@
 		FE2C18FD2F46D71E006EBD83 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
 		FE35D4BC2F7B202800382932 /* AppearanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsView.swift; sourceTree = "<group>"; };
 		FE35D4C02F7B3AD700382932 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		FE486F6B2F96E08B00A21374 /* CircularDownloadProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CircularDownloadProgress.swift; sourceTree = "<group>"; };
 		FE9828B42F5115F6007EA1BC /* FilterOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterOption.swift; sourceTree = "<group>"; };
 		FE9828BC2F516AF7007EA1BC /* MusicClientIntents.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MusicClientIntents.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FE9828BE2F516AF7007EA1BC /* Intents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Intents.framework; path = System/Library/Frameworks/Intents.framework; sourceTree = SDKROOT; };
@@ -164,6 +166,7 @@
 				AA0005000000000000000004 /* Models */,
 				AA0005000000000000000005 /* Services */,
 				AA0005000000000000000006 /* Managers */,
+				FE486F6C2F96E08B00A21374 /* Components */,
 				AA0005000000000000000007 /* Views */,
 				AA0005000000000000000008 /* CarPlay */,
 				AA0005000000000000000009 /* Supporting Files */,
@@ -248,6 +251,14 @@
 				AA0002000000000000000025 /* Info.plist */,
 			);
 			path = "Supporting Files";
+			sourceTree = "<group>";
+		};
+		FE486F6C2F96E08B00A21374 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				FE486F6B2F96E08B00A21374 /* CircularDownloadProgress.swift */,
+			);
+			path = Components;
 			sourceTree = "<group>";
 		};
 		FE9828BD2F516AF7007EA1BC /* Frameworks */ = {
@@ -392,6 +403,7 @@
 				AA0001000000000000000007 /* KeychainManager.swift in Sources */,
 				AA0001000000000000000008 /* AudioPlayerManager.swift in Sources */,
 				AA0001000000000000000010 /* ServerSetupView.swift in Sources */,
+				FE486F6D2F96E08B00A21374 /* CircularDownloadProgress.swift in Sources */,
 				AA0001000000000000000012 /* MainTabView.swift in Sources */,
 				AA0001000000000000000014 /* LibraryView.swift in Sources */,
 				FEF411942F51F1D500B8ECE6 /* FilterOption.swift in Sources */,
