@@ -87,7 +87,7 @@ struct StorageSettingsView: View {
                 }
 
                 Button(action: {
-                    AudioPlayerManager.shared.clearRecentlyPlayed()
+                    DownloadManager.shared.clearRecentlyPlayed()
                     recentlyPlayedCount = 0
                 }) {
                     Text("settings.storage.clear_recently_played")
@@ -100,7 +100,7 @@ struct StorageSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             updateSizes()
-            recentlyPlayedCount = AudioPlayerManager.shared.recentlyPlayedAlbumIds.count
+            recentlyPlayedCount = DownloadManager.shared.recentlyPlayedAlbumIds.count
         }
         .alert("settings.storage.clear_downloads", isPresented: $showClearDownloadsAlert) {
             Button("common.cancel", role: .cancel) {}

@@ -13,8 +13,7 @@ struct LibraryView: View {
 
     private var filteredAlbums: [Album] {
         let filtered = albumCoordinator.getFilteredAlbums(
-            filter: selectedFilter.rawValue,
-            recentlyPlayedAlbumIds: audioPlayer.recentlyPlayedAlbumIds
+            filter: selectedFilter.rawValue
         )
 
         if searchText.isEmpty {
@@ -245,13 +244,13 @@ struct LibraryView: View {
     }
 
     private func removeFromRecentlyPlayed(_ album: Album) {
-        audioPlayer.removeFromRecentlyPlayed(albumId: album.id)
+        DownloadManager.shared.removeFromRecentlyPlayed(albumId: album.id)
     }
 
     private func moveRecentlyPlayedAlbum(from source: IndexSet, to destination: Int) {
         var albumIds = filteredAlbums.map { $0.id }
         albumIds.move(fromOffsets: source, toOffset: destination)
-        audioPlayer.reorderRecentlyPlayed(newOrder: albumIds)
+        DownloadManager.shared.reorderRecentlyPlayed(newOrder: albumIds)
     }
 
     private func fuzzyMatch(_ string: String, _ query: String) -> Bool {

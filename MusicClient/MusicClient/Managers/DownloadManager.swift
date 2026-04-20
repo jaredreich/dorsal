@@ -9,6 +9,7 @@ class DownloadManager: NSObject, ObservableObject {
     @Published var downloadingSongIds: Set<String> = []
     @Published var downloadingAlbumIds: Set<String> = []
     @Published var pinnedAlbums: Set<String> = []
+    @Published var recentlyPlayedAlbumIds: [String] = []
     @Published var activeDownloadCount: Int = 0
     @Published var cachedContentVersion: Int = 0
 
@@ -77,6 +78,7 @@ class DownloadManager: NSObject, ObservableObject {
     override private init() {
         super.init()
         loadPinnedItems()
+        loadRecentlyPlayedAlbums()
         buildCachedSongIndex()
     }
 
@@ -645,6 +647,43 @@ class DownloadManager: NSObject, ObservableObject {
         }
     }
 
+    private func loadRecentlyPlayedAlbums() {
+        if let data = UserDefaults.standard.data(forKey: "recentlyPlayedAlbumIds"),
+           let albumIds = try? JSONDecoder().decode([String].self, from: data) {
+            recentlyPlayedAlbumIds = albumIds
+        }
+    }
+
+    private func saveRecentlyPlayedAlbums() {
+        if let data = try? JSONEncoder().encode(recentlyPlayedAlbumIds) {
+            UserDefaults.standard.set(data, forKey: "recentlyPlayedAlbumIds")
+        }
+    }
+
+    func addToRecentlyPlayed(albumId: String) {
+        recentlyPlayedAlbumIds.removeAll { $0 == albumId }
+        recentlyPlayedAlbumIds.insert(albumId, at: 0)
+        if recentlyPlayedAlbumIds.count > 100 {
+            recentlyPlayedAlbumIds = Array(recentlyPlayedAlbumIds.prefix(100))
+        }
+        saveRecentlyPlayedAlbums()
+    }
+
+    func clearRecentlyPlayed() {
+        recentlyPlayedAlbumIds = []
+        saveRecentlyPlayedAlbums()
+    }
+
+    func removeFromRecentlyPlayed(albumId: String) {
+        recentlyPlayedAlbumIds.removeAll { $0 == albumId }
+        saveRecentlyPlayedAlbums()
+    }
+
+    func reorderRecentlyPlayed(newOrder: [String]) {
+        recentlyPlayedAlbumIds = newOrder
+        saveRecentlyPlayedAlbums()
+    }
+
     // Loads songs for an album, checking pinned first, then fetching from server with metadata fallback
     // Songs are always returned sorted by disc and track number regardless of source
     func loadSongsForAlbum(_ albumId: String, album: Album) async throws -> [Song] {
@@ -1034,7 +1073,7 @@ class AlbumStateCoordinator: ObservableObject {
     }
 
     // Returns filtered albums based on the filter option
-    func getFilteredAlbums(filter: String, recentlyPlayedAlbumIds: [String]) -> [Album] {
+    func getFilteredAlbums(filter: String) -> [Album] {
         let filtered: [Album]
         switch filter {
         case "Library":
@@ -1044,7 +1083,7 @@ class AlbumStateCoordinator: ObservableObject {
         case "Recently Played":
             // Preserve recency order, map album IDs to albums in order
             let albumsById = Dictionary(uniqueKeysWithValues: albums.map { ($0.id, $0) })
-            filtered = recentlyPlayedAlbumIds.compactMap { albumsById[$0] }
+            filtered = downloadManager.recentlyPlayedAlbumIds.compactMap { albumsById[$0] }
         case "Offline":
             filtered = offlineAlbums
         default:

@@ -15,7 +15,6 @@ class AudioPlayerManager: NSObject, ObservableObject {
     var currentTime: TimeInterval = 0
     @Published var duration: TimeInterval = 0
     @Published var currentSong: Song?
-    @Published var recentlyPlayedAlbumIds: [String] = []
     @Published var isEqualizerEnabled: Bool = false {
         didSet {
             UserDefaults.standard.set(isEqualizerEnabled, forKey: "isEqualizerEnabled")
@@ -44,7 +43,6 @@ class AudioPlayerManager: NSObject, ObservableObject {
     override private init() {
         super.init()
         audioPlayer.delegate = self
-        loadRecentlyPlayedAlbums()
         loadEqualizerState()
         setupAudioSession()
         setupEqualizer()
@@ -205,7 +203,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
                 }
 
                 self.updateNowPlayingInfo()
-                self.addToRecentlyPlayed(albumId: song.albumId)
+                DownloadManager.shared.addToRecentlyPlayed(albumId: song.albumId)
             } catch {
                 self.isLoading = false
             }
@@ -315,43 +313,6 @@ class AudioPlayerManager: NSObject, ObservableObject {
                 self.enqueueNextSong()
             }
         }
-    }
-
-    private func loadRecentlyPlayedAlbums() {
-        if let data = UserDefaults.standard.data(forKey: "recentlyPlayedAlbumIds"),
-           let albumIds = try? JSONDecoder().decode([String].self, from: data) {
-            recentlyPlayedAlbumIds = albumIds
-        }
-    }
-
-    private func saveRecentlyPlayedAlbums() {
-        if let data = try? JSONEncoder().encode(recentlyPlayedAlbumIds) {
-            UserDefaults.standard.set(data, forKey: "recentlyPlayedAlbumIds")
-        }
-    }
-
-    private func addToRecentlyPlayed(albumId: String) {
-        recentlyPlayedAlbumIds.removeAll { $0 == albumId }
-        recentlyPlayedAlbumIds.insert(albumId, at: 0)
-        if recentlyPlayedAlbumIds.count > 100 {
-            recentlyPlayedAlbumIds = Array(recentlyPlayedAlbumIds.prefix(100))
-        }
-        saveRecentlyPlayedAlbums()
-    }
-
-    func clearRecentlyPlayed() {
-        recentlyPlayedAlbumIds = []
-        saveRecentlyPlayedAlbums()
-    }
-
-    func removeFromRecentlyPlayed(albumId: String) {
-        recentlyPlayedAlbumIds.removeAll { $0 == albumId }
-        saveRecentlyPlayedAlbums()
-    }
-
-    func reorderRecentlyPlayed(newOrder: [String]) {
-        recentlyPlayedAlbumIds = newOrder
-        saveRecentlyPlayedAlbums()
     }
 
     private func updateNowPlayingInfo() {
@@ -476,8 +437,8 @@ extension AudioPlayerManager: AudioPlayer.Delegate {
                 self.duration = self.audioPlayer.time?.total ?? song.duration ?? 0
                 self.hasTriggeredPrefetch = false
                 self.updateNowPlayingInfo()
-                self.addToRecentlyPlayed(albumId: song.albumId)
                 self.enqueueNextSong()
+                DownloadManager.shared.addToRecentlyPlayed(albumId: song.albumId)
             }
         }
     }

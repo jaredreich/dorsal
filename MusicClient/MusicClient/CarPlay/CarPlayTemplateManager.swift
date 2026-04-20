@@ -153,8 +153,7 @@ class CarPlayTemplateManager: NSObject {
 
     private func createLibraryTemplate(filter: FilterOption) -> CPListTemplate {
         let albums = albumCoordinator.getFilteredAlbums(
-            filter: filter.rawValue,
-            recentlyPlayedAlbumIds: audioPlayer.recentlyPlayedAlbumIds
+            filter: filter.rawValue
         )
 
         let shouldUseAlphabeticalSections = (filter == .library || filter == .offline)
