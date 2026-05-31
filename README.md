@@ -1,7 +1,7 @@
 <div align="center">
   <div>
     <div>
-      <img src="media/icon-rounded.png" alt="Icon" width="100">
+      <img src="media/icon.png" alt="Icon" width="100">
     </div>
     <h3><b>Dorsal</b></h3>
     <div>An album-focused iOS/iPadOS music player for Jellyfin.</div>
