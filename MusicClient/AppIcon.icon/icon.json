@@ -1,0 +1,42 @@
+{
+  "fill" : {
+    "automatic-gradient" : "srgb:0.00000,0.04314,0.14510,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "fill" : {
+            "linear-gradient" : [
+              "display-p3:0.00000,0.64314,0.86275,1.00000",
+              "srgb:0.66667,0.36078,0.76471,1.00000"
+            ],
+            "orientation" : {
+              "start" : {
+                "x" : 1,
+                "y" : 0
+              },
+              "stop" : {
+                "x" : 0,
+                "y" : 1
+              }
+            }
+          },
+          "image-name" : "icon.svg",
+          "name" : "Icon"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}

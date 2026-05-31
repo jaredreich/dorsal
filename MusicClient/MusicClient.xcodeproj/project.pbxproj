@@ -29,6 +29,7 @@
 		AA0001000000000000000022 /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002000000000000000022 /* CarPlaySceneDelegate.swift */; };
 		AA0001000000000000000023 /* CarPlayTemplateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002000000000000000023 /* CarPlayTemplateManager.swift */; };
 		AA0001000000000000000024 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0002000000000000000024 /* Assets.xcassets */; };
+		FE1D74382FCCE49C00875A67 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = FE1D74372FCCE49C00875A67 /* AppIcon.icon */; };
 		FE2C18FE2F46D71E006EBD83 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE2C18FD2F46D71E006EBD83 /* DownloadManager.swift */; };
 		FE35D4BD2F7B202800382932 /* AppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE35D4BC2F7B202800382932 /* AppearanceSettingsView.swift */; };
 		FE35D4C12F7B3AD700382932 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = FE35D4C02F7B3AD700382932 /* Localizable.xcstrings */; };
@@ -97,6 +98,7 @@
 		AA0002000000000000000025 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA0003000000000000000001 /* MusicClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MusicClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F7F8D37A7A0D400DA632CC13 /* StorageSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageSettingsView.swift; sourceTree = "<group>"; };
+		FE1D74372FCCE49C00875A67 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		FE2C18FD2F46D71E006EBD83 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
 		FE35D4BC2F7B202800382932 /* AppearanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsView.swift; sourceTree = "<group>"; };
 		FE35D4C02F7B3AD700382932 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -149,6 +151,7 @@
 		AA0005000000000000000001 = {
 			isa = PBXGroup;
 			children = (
+				FE1D74372FCCE49C00875A67 /* AppIcon.icon */,
 				7FCF48BB2F8C4A9D00554717 /* Config.xcconfig */,
 				AA0005000000000000000002 /* MusicClient */,
 				FE9828C02F516AF7007EA1BC /* MusicClientIntents */,
@@ -369,6 +372,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FE35D4C12F7B3AD700382932 /* Localizable.xcstrings in Resources */,
+				FE1D74382FCCE49C00875A67 /* AppIcon.icon in Resources */,
 				7FCF48BD2F8C4A9E00554717 /* Config.xcconfig in Resources */,
 				AA0001000000000000000024 /* Assets.xcassets in Resources */,
 			);

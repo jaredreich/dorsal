@@ -20,7 +20,7 @@ struct ServerSetupView: View {
         ScrollView {
             VStack(spacing: 20) {
                 VStack(spacing: 10) {
-                    Image("AppLogoTransparent")
+                    Image("AppIconImage")
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 100, height: 100)
