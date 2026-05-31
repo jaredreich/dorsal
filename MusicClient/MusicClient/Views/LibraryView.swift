@@ -64,12 +64,8 @@ struct LibraryView: View {
     var body: some View {
         NavigationView {
             Group {
-                    VStack(spacing: 16) {
-                        CircularDownloadProgress(progress: JellyfinService.shared.syncProgress)
-                            .frame(width: 20, height: 20)
-                        Text("library.loading")
-                            .foregroundColor(.secondary)
-                    }
+                if isLoading {
+                    ProgressView("library.loading")
                 } else if filteredAlbums.isEmpty {
                     VStack(spacing: 20) {
                         Image(systemName: emptyStateIcon)

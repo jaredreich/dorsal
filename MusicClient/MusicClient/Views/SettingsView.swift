@@ -29,8 +29,8 @@ struct SettingsView: View {
                         HStack {
                             Text("settings.sync.button")
                             Spacer()
-                                CircularDownloadProgress(progress: jellyfinService.syncProgress)
-                                    .frame(width: 20, height: 20)
+                            if isSyncing {
+                                ProgressView()
                             }
                         }
                     }
