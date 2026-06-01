@@ -109,12 +109,8 @@ class CarPlayTemplateManager: NSObject {
         // just register as an observer
         CPNowPlayingTemplate.shared.add(self)
 
-        // The below code enables the "Up Next" queue button on the Now Playing view
-        // this functionality does not work well, so leaving it out
-        // =============================================================
-        // CPNowPlayingTemplate.shared.isUpNextButtonEnabled = true
-        // CPNowPlayingTemplate.shared.upNextTitle = String(localized: "carplay.queue.title")
-        // =============================================================
+        CPNowPlayingTemplate.shared.isUpNextButtonEnabled = true
+        CPNowPlayingTemplate.shared.upNextTitle = String(localized: "carplay.now_playing.view_album")
 
         // Clear existing album items before recreating tabs
         albumItems.removeAll()
@@ -538,24 +534,13 @@ extension CarPlayTemplateManager: CPInterfaceControllerDelegate {
 }
 
 extension CarPlayTemplateManager: CPNowPlayingTemplateObserver {
-    // Leaving Up Next feature out for now
-    /*
     nonisolated func nowPlayingTemplateUpNextButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
-        // Show the queue of songs
         Task { @MainActor in
-            if !self.audioPlayer.queue.isEmpty {
-                let items = self.audioPlayer.queue.map { song -> CPListItem in
-                    let item = CPListItem(text: song.name, detailText: song.artistName)
-                    item.isPlaying = (song.id == self.audioPlayer.currentSong?.id)
-                    return item
-                }
-
-                let template = CPListTemplate(title: String(localized: "carplay.queue.title"), sections: [CPListSection(items: items)])
-                self.interfaceController?.pushTemplate(template, animated: true, completion: nil)
-            }
+            guard let albumId = self.audioPlayer.currentSong?.albumId,
+                  let album = self.albumCoordinator.albums.first(where: { $0.id == albumId }) else { return }
+            self.handleAlbumSelection(album)
         }
     }
-    */
 
     nonisolated func nowPlayingTemplateAlbumArtistButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
         // Could implement artist view here

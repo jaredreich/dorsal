@@ -1371,6 +1371,22 @@
         }
       }
     },
+    "carplay.now_playing.view_album": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "View Album" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Album anzeigen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Ver álbum" } },
+        "fi": { "stringUnit": { "state": "translated", "value": "Näytä albumi" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Voir l'album" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Visualizza album" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アルバムを表示" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Vis album" } },
+        "nl": { "stringUnit": { "state": "translated", "value": "Album bekijken" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Ver álbum" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "Ver álbum" } },
+        "sv": { "stringUnit": { "state": "translated", "value": "Visa album" } }
+      }
+    },
     "carplay.unauthenticated.message": {
       "localizations": {
         "en": {
