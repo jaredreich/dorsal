@@ -1,6 +1,15 @@
 import Foundation
 import Intents
 
+struct SongSearchEntry: Codable {
+    let id: String
+    let name: String
+    let artistName: String
+    let albumName: String
+    let albumId: String
+    let duration: Double?
+}
+
 class SearchManager {
     static let shared = SearchManager()
 
@@ -8,18 +17,28 @@ class SearchManager {
     private let appGroupId = "group.com.jaredreich.shared"
 
     private var albumsCache: [Album] = []
+    private var songsSearchCache: [SongSearchEntry] = []
+
+    private var storageDirectory: URL? {
+        fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroupId)?
+            .appendingPathComponent("Storage", isDirectory: true)
+    }
 
     private var albumsDirectory: URL? {
-        fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroupId)?
-            .appendingPathComponent("Storage/albums", isDirectory: true)
+        storageDirectory?.appendingPathComponent("albums", isDirectory: true)
     }
 
     private var albumsIndexUrl: URL? {
-        albumsDirectory?.appendingPathComponent("albums.json")
+        storageDirectory?.appendingPathComponent("albums.json")
+    }
+
+    private var songsIndexUrl: URL? {
+        storageDirectory?.appendingPathComponent("songs.json")
     }
 
     private init() {
         loadAlbumsIndex()
+        loadSongsIndex()
     }
 
     private func loadAlbumsIndex() {
@@ -33,7 +52,8 @@ class SearchManager {
     }
 
     private func saveAlbumsIndex() {
-        guard let url = albumsIndexUrl else { return }
+        guard let url = albumsIndexUrl, let dir = storageDirectory else { return }
+        try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
         if let data = try? JSONEncoder().encode(albumsCache) {
             try? data.write(to: url)
         }
@@ -55,6 +75,46 @@ class SearchManager {
 
     func getAllAlbumsFromMetadata() -> [Album] {
         return albumsCache
+    }
+
+    private func loadSongsIndex() {
+        guard let url = songsIndexUrl,
+              fileManager.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let entries = try? JSONDecoder().decode([SongSearchEntry].self, from: data) else {
+            return
+        }
+        songsSearchCache = entries
+    }
+
+    private func saveSongsIndex() {
+        guard let url = songsIndexUrl, let dir = storageDirectory else { return }
+        try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        if let data = try? JSONEncoder().encode(songsSearchCache) {
+            try? data.write(to: url)
+        }
+    }
+
+    func replaceSongsIndex(_ entries: [SongSearchEntry]) {
+        songsSearchCache = entries
+        saveSongsIndex()
+    }
+
+    // Returns album IDs that have at least one song matching the query,
+    // skipping albums already matched by name/artist (passed in as `excluding`).
+    func getAlbumIdsMatchingSongs(query: String, excluding: Set<String>) -> Set<String> {
+        var result = Set<String>()
+        for entry in songsSearchCache {
+            guard !excluding.contains(entry.albumId) else { continue }
+            if fuzzyMatch(entry.name, query) {
+                result.insert(entry.albumId)
+            }
+        }
+        return result
+    }
+
+    func getAllSongsIndex() -> [SongSearchEntry] {
+        return songsSearchCache
     }
 
     func getAllSongsFromAlbums(_ albums: [Album]) -> [Song] {

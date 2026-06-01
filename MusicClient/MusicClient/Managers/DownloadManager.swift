@@ -223,7 +223,7 @@ class DownloadManager: NSObject, ObservableObject {
 
         let (album, songs) = albumDownloadQueue.removeFirst()
 
-        // Mark this album's uncached songs as downloading
+        // Set this album's uncached songs as downloading
         downloadingSongIds.formUnion(pendingAlbumDownloads[album.id] ?? [])
         activeDownloadCount = activeDownloads.count
 
@@ -1028,12 +1028,23 @@ class ImageCacheManager {
     }
 }
 
+enum SongsIndexState: Equatable {
+    case notIndexed
+    case indexing(Double)
+    case indexed
+}
+
 // Mediator that coordinates album state between JellyfinService and DownloadManager
 @MainActor
 class AlbumStateCoordinator: ObservableObject {
     static let shared = AlbumStateCoordinator()
 
     @Published private(set) var albums: [Album] = []
+    @Published var isSyncing: Bool = false
+    @Published var albumSyncProgress: Double = 0
+    @Published var songsIndexState: SongsIndexState = .notIndexed
+    @Published var lastSyncDate: Date? = nil
+    @Published var lastIndexedDate: Date? = nil
 
     // Albums available offline (pinned or with at least one cached song).
     // Pre-computed and cached, not re-evaluated during playback to avoid disk I/O on every render.
@@ -1048,6 +1059,12 @@ class AlbumStateCoordinator: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     private init() {
+        // Load persisted state
+        let isIndexed = UserDefaults.standard.bool(forKey: "isSongsIndexed")
+        songsIndexState = isIndexed ? .indexed : .notIndexed
+        lastIndexedDate = UserDefaults.standard.object(forKey: "lastIndexedDate") as? Date
+        lastSyncDate = UserDefaults.standard.object(forKey: "lastSyncDate") as? Date
+
         // Observe changes to source albums from JellyfinService
         jellyfinService.$albums
             .sink { [weak self] serverAlbums in
@@ -1070,6 +1087,8 @@ class AlbumStateCoordinator: ObservableObject {
                 self?.updateOfflineAlbums()
             }
             .store(in: &cancellables)
+
+        loadCachedAlbums()
     }
 
     private func updateAlbums(serverAlbums: [Album]) {
@@ -1160,38 +1179,71 @@ class AlbumStateCoordinator: ObservableObject {
         }
     }
 
-    // Fetch albums from server (delegates to JellyfinService)
-    func fetchAlbums() async throws {
-        try await jellyfinService.fetchAlbums()
+    func sync() async throws {
+        isSyncing = true
+        songsIndexState = .notIndexed
+        UserDefaults.standard.set(false, forKey: "isSongsIndexed")
+        albumSyncProgress = 0
 
-        // Clean up everything that was removed from the server
-        let serverAlbumIds = Set(jellyfinService.albums.map { $0.id })
-        downloadManager.cleanupStaleAlbums(serverAlbumIds: serverAlbumIds)
-
-        // Fetch all songs in the background to make them searchable
-        Task {
-            do {
-                let allSongs = try await jellyfinService.fetchAllSongs()
-
-                // Group songs by album
-                let songsByAlbum = Dictionary(grouping: allSongs) { $0.albumId }
-
-                // Save metadata for each album to make songs searchable (skip per-album index writes)
-                for album in self.albums {
-                    if let songs = songsByAlbum[album.id] {
-                        self.downloadManager.saveAlbumMetadata(albumId: album.id, album: album, songs: songs, updateIndex: false)
-                    }
-                }
-
-                // Bulk update the albums index once after all metadata is saved
-                SearchManager.shared.replaceAlbumsIndex(self.albums)
-
-                // Donate vocabulary to Siri once after all albums are saved
-                self.downloadManager.donateVocabularyToSiri(albums: self.albums)
-            } catch {
-                // Songs just won't be searchable if this fails
-                // TODO: handle this
+        do {
+            try await jellyfinService.fetchAlbums { [weak self] progress in
+                self?.albumSyncProgress = progress
             }
+
+            SearchManager.shared.replaceAlbumsIndex(jellyfinService.albums)
+
+            let serverAlbumIds = Set(jellyfinService.albums.map { $0.id })
+            downloadManager.cleanupStaleAlbums(serverAlbumIds: serverAlbumIds)
+
+            let now = Date()
+            lastSyncDate = now
+            UserDefaults.standard.set(now, forKey: "lastSyncDate")
+            isSyncing = false
+            albumSyncProgress = 0
+
+            Task {
+                await fetchAndIndexAllSongs()
+            }
+        } catch {
+            isSyncing = false
+            albumSyncProgress = 0
+            throw error
+        }
+    }
+
+    private func fetchAndIndexAllSongs() async {
+        songsIndexState = .indexing(0)
+
+        do {
+            let allSongs = try await jellyfinService.fetchAllSongs { [weak self] progress in
+                self?.songsIndexState = .indexing(progress)
+            }
+
+            let songsByAlbum = Dictionary(grouping: allSongs) { $0.albumId }
+
+            for album in albums {
+                if let songs = songsByAlbum[album.id] {
+                    downloadManager.saveAlbumMetadata(albumId: album.id, album: album, songs: songs, updateIndex: false)
+                }
+            }
+
+            let indexEntries = allSongs.map {
+                SongSearchEntry(id: $0.id, name: $0.name, artistName: $0.artistName, albumName: $0.albumName, albumId: $0.albumId, duration: $0.duration)
+            }
+            SearchManager.shared.replaceSongsIndex(indexEntries)
+
+            downloadManager.donateVocabularyToSiri(albums: albums)
+
+            let now = Date()
+            lastIndexedDate = now
+            UserDefaults.standard.set(now, forKey: "lastIndexedDate")
+            UserDefaults.standard.set(true, forKey: "isSongsIndexed")
+            songsIndexState = .indexed
+        } catch {
+            UserDefaults.standard.set(false, forKey: "isSongsIndexed")
+            lastIndexedDate = nil
+            UserDefaults.standard.removeObject(forKey: "lastIndexedDate")
+            songsIndexState = .notIndexed
         }
     }
 }

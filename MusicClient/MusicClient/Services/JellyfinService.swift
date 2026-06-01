@@ -139,89 +139,113 @@ class JellyfinService: ObservableObject {
         }
     }
 
-    func fetchAllSongs() async throws -> [Song] {
+    func fetchAllSongs(onProgress: ((Double) -> Void)? = nil) async throws -> [Song] {
         guard let serverUrl = authState.serverUrl,
               let userId = authState.userId,
               let _ = authState.accessToken else {
             throw JellyfinError.invalidCredentials
         }
 
-        let urlString = "\(serverUrl)/Users/\(userId)/Items?IncludeItemTypes=Audio&Recursive=true"
+        let pageSize = 500
+        var startIndex = 0
+        var totalCount: Int? = nil
+        var allSongs: [Song] = []
+        var lastPageCount = pageSize
 
-        guard let url = URL(string: urlString) else {
-            throw JellyfinError.invalidURL
-        }
+        repeat {
+            let urlString = "\(serverUrl)/Users/\(userId)/Items?IncludeItemTypes=Audio&Recursive=true&StartIndex=\(startIndex)&Limit=\(pageSize)"
 
-        let request = createRequest(url: url, includeToken: true)
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-
-        guard let items = json?["Items"] as? [[String: Any]] else {
-            throw JellyfinError.decodingError(NSError(domain: "JellyfinService", code: -1))
-        }
-
-        return items.compactMap { item -> Song? in
-            guard let id = item["Id"] as? String,
-                  let title = item["Name"] as? String,
-                  let albumName = item["Album"] as? String,
-                  let albumId = item["AlbumId"] as? String else {
-                return nil
+            guard let url = URL(string: urlString) else {
+                throw JellyfinError.invalidURL
             }
 
-            let artistName = (item["AlbumArtist"] as? String) ?? (item["Artists"] as? [String])?.first ?? "Unknown Artist"
-            let duration = (item["RunTimeTicks"] as? Int).map { TimeInterval($0) / 10_000_000 }
-            let trackNumber = item["IndexNumber"] as? Int
-            let discNumber = item["ParentIndexNumber"] as? Int
-
-            let imageUrl: String?
-            if let albumIdForImage = item["AlbumId"] as? String {
-                imageUrl = "\(serverUrl)/Items/\(albumIdForImage)/Images/Primary"
-            } else {
-                imageUrl = nil
-            }
-
-            return Song(
-                id: id,
-                name: title,
-                artistName: artistName,
-                albumName: albumName,
-                albumId: albumId,
-                duration: duration,
-                trackNumber: trackNumber,
-                discNumber: discNumber,
-                imageUrl: imageUrl
-            )
-        }
-    }
-
-    func fetchAlbums() async throws {
-        guard let serverUrl = authState.serverUrl,
-              let userId = authState.userId,
-              let _ = authState.accessToken else {
-            throw JellyfinError.invalidCredentials
-        }
-
-        let urlString = "\(serverUrl)/Users/\(userId)/Items?IncludeItemTypes=MusicAlbum&Recursive=true&Fields=ProductionYear,DateCreated"
-
-        guard let url = URL(string: urlString) else {
-            throw JellyfinError.invalidURL
-        }
-
-        let request = createRequest(url: url, includeToken: true)
-
-        DispatchQueue.main.async {
-            self.isLoading = true
-        }
-
-        do {
+            let request = createRequest(url: url, includeToken: true)
             let (data, _) = try await URLSession.shared.data(for: request)
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
 
-            guard let items = json?["Items"] as? [[String: Any]] else {
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let items = json["Items"] as? [[String: Any]] else {
                 throw JellyfinError.decodingError(NSError(domain: "JellyfinService", code: -1))
             }
 
-            let fetchedAlbums = items.compactMap { item -> Album? in
+            if totalCount == nil {
+                totalCount = json["TotalRecordCount"] as? Int
+            }
+
+            let pageSongs = items.compactMap { item -> Song? in
+                guard let id = item["Id"] as? String,
+                      let title = item["Name"] as? String,
+                      let albumName = item["Album"] as? String,
+                      let albumId = item["AlbumId"] as? String else {
+                    return nil
+                }
+
+                let artistName = (item["AlbumArtist"] as? String) ?? (item["Artists"] as? [String])?.first ?? "Unknown Artist"
+                let duration = (item["RunTimeTicks"] as? Int).map { TimeInterval($0) / 10_000_000 }
+                let trackNumber = item["IndexNumber"] as? Int
+                let discNumber = item["ParentIndexNumber"] as? Int
+                let imageUrl: String? = "\(serverUrl)/Items/\(albumId)/Images/Primary"
+
+                return Song(
+                    id: id,
+                    name: title,
+                    artistName: artistName,
+                    albumName: albumName,
+                    albumId: albumId,
+                    duration: duration,
+                    trackNumber: trackNumber,
+                    discNumber: discNumber,
+                    imageUrl: imageUrl
+                )
+            }
+
+            allSongs.append(contentsOf: pageSongs)
+            lastPageCount = items.count
+            startIndex += items.count
+
+            if let total = totalCount, total > 0 {
+                onProgress?(Double(min(startIndex, total)) / Double(total))
+            }
+        } while lastPageCount == pageSize && (totalCount == nil || startIndex < totalCount!)
+
+        return allSongs
+    }
+
+    func fetchAlbums(onProgress: ((Double) -> Void)? = nil) async throws {
+        guard let serverUrl = authState.serverUrl,
+              let userId = authState.userId,
+              let _ = authState.accessToken else {
+            throw JellyfinError.invalidCredentials
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        let pageSize = 500
+        var startIndex = 0
+        var totalCount: Int? = nil
+        var allAlbums: [Album] = []
+        var lastPageCount = pageSize
+
+        repeat {
+            let urlString = "\(serverUrl)/Users/\(userId)/Items?IncludeItemTypes=MusicAlbum&Recursive=true&Fields=ProductionYear,DateCreated&StartIndex=\(startIndex)&Limit=\(pageSize)"
+
+            guard let url = URL(string: urlString) else {
+                throw JellyfinError.invalidURL
+            }
+
+            let request = createRequest(url: url, includeToken: true)
+            let (data, _) = try await URLSession.shared.data(for: request)
+
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let items = json["Items"] as? [[String: Any]] else {
+                throw JellyfinError.decodingError(NSError(domain: "JellyfinService", code: -1))
+            }
+
+            if totalCount == nil {
+                totalCount = json["TotalRecordCount"] as? Int
+            }
+
+            let pageAlbums = items.compactMap { item -> Album? in
                 guard let id = item["Id"] as? String,
                       let name = item["Name"] as? String,
                       let albumArtist = item["AlbumArtist"] as? String else {
@@ -252,17 +276,16 @@ class JellyfinService: ObservableObject {
                 )
             }
 
-            DispatchQueue.main.async {
-                self.albums = fetchedAlbums
-                self.isLoading = false
+            allAlbums.append(contentsOf: pageAlbums)
+            lastPageCount = items.count
+            startIndex += items.count
+
+            if let total = totalCount, total > 0 {
+                onProgress?(Double(min(startIndex, total)) / Double(total))
             }
-        } catch {
-            DispatchQueue.main.async {
-                self.isLoading = false
-                self.errorMessage = error.localizedDescription
-            }
-            throw JellyfinError.networkError(error)
-        }
+        } while lastPageCount == pageSize && (totalCount == nil || startIndex < totalCount!)
+
+        albums = allAlbums
     }
 
     func fetchSongs(for albumId: String) async throws -> [Song] {

@@ -74,15 +74,6 @@ struct LibraryView: View {
                         Text(emptyStateMessage)
                             .font(.headline)
                             .foregroundColor(.secondary)
-                        if selectedFilter == .library {
-                            Button("library.refresh") {
-                                Task {
-                                    await loadAllAlbums()
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(.appAccent)
-                        }
                     }
                 } else {
                     List {
@@ -168,7 +159,11 @@ struct LibraryView: View {
             }
             .navigationTitle(selectedFilter.localizedName)
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: Text("library.search_prompt"))
+            .conditionallySearchable(
+                isEnabled: albumCoordinator.songsIndexState == .indexed,
+                text: $searchText,
+                prompt: Text("library.search_prompt")
+            )
             .autocorrectionDisabled()
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -212,6 +207,9 @@ struct LibraryView: View {
         .onChange(of: searchText) { newValue in
             updateSongSearchIndex(query: newValue)
         }
+        .onChange(of: albumCoordinator.songsIndexState == .indexed) { isIndexed in
+            if !isIndexed { searchText = "" }
+        }
     }
 
     private func updateSongSearchIndex(query: String) {
@@ -220,27 +218,8 @@ struct LibraryView: View {
             return
         }
         let allAlbums = SearchManager.shared.getAllAlbumsFromMetadata()
-        var matchingIds = Set<String>()
-        for album in allAlbums {
-            if fuzzyMatch(album.name, query) || fuzzyMatch(album.artistName, query) {
-                continue
-            }
-            let songs = SearchManager.shared.getSongsForAlbum(album.id)
-            if songs.contains(where: { fuzzyMatch($0.name, query) }) {
-                matchingIds.insert(album.id)
-            }
-        }
-        albumIdsWithMatchingSongs = matchingIds
-    }
-
-    private func loadAllAlbums() async {
-        albumCoordinator.loadCachedAlbums()
-
-        do {
-            try await albumCoordinator.fetchAlbums()
-        } catch {
-            // TODO: handle this (if server fetch fails, we already have cached albums loaded)
-        }
+        let albumMatched = Set(allAlbums.filter { fuzzyMatch($0.name, query) || fuzzyMatch($0.artistName, query) }.map { $0.id })
+        albumIdsWithMatchingSongs = SearchManager.shared.getAlbumIdsMatchingSongs(query: query, excluding: albumMatched)
     }
 
     private func removeFromRecentlyPlayed(_ album: Album) {
@@ -289,6 +268,7 @@ struct AlbumRowView: View {
 
             if downloadManager.downloadingAlbumIds.contains(album.id) {
                 CircularDownloadProgress(progress: downloadManager.albumDownloadProgress(albumId: album.id))
+                    .frame(width: 20, height: 20)
             } else if downloadManager.isPinned(albumId: album.id) {
                 Image(systemName: "circle.fill")
                     .foregroundColor(.appAccent)
@@ -300,6 +280,17 @@ struct AlbumRowView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func conditionallySearchable(isEnabled: Bool, text: Binding<String>, prompt: Text) -> some View {
+        if isEnabled {
+            self.searchable(text: text, placement: .navigationBarDrawer(displayMode: .always), prompt: prompt)
+        } else {
+            self
+        }
     }
 }
 

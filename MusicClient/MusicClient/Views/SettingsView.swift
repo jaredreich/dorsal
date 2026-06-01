@@ -4,8 +4,6 @@ struct SettingsView: View {
     @EnvironmentObject var jellyfinService: JellyfinService
     @EnvironmentObject var albumCoordinator: AlbumStateCoordinator
     @State private var showLogoutAlert = false
-    @State private var isSyncing = false
-    @State private var lastSyncDate: Date?
     @State private var albumCount = 0
     @State private var songCount = 0
     @State private var totalHours = 0.0
@@ -14,14 +12,38 @@ struct SettingsView: View {
         NavigationView {
             List {
                 Section {
-                    if let lastSync = lastSyncDate {
-                        HStack {
-                            Text("settings.sync.last_synced")
-                                .foregroundColor(.secondary)
-                            Spacer()
+                    HStack {
+                        Text("settings.sync.last_synced")
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        if albumCoordinator.isSyncing {
+                            CircularDownloadProgress(progress: albumCoordinator.albumSyncProgress)
+                                .frame(width: 20, height: 20)
+                        } else if let lastSync = albumCoordinator.lastSyncDate {
                             Text(lastSync.formatted(date: .abbreviated, time: .shortened))
                                 .foregroundColor(.secondary)
                                 .font(.caption)
+                        }
+                    }
+
+                    HStack {
+                        Text("settings.sync.last_indexed")
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        switch albumCoordinator.songsIndexState {
+                        case .notIndexed:
+                            Text("settings.sync.not_indexed")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                        case .indexing(let progress):
+                            CircularDownloadProgress(progress: progress)
+                                .frame(width: 20, height: 20)
+                        case .indexed:
+                            if let lastIndexed = albumCoordinator.lastIndexedDate {
+                                Text(lastIndexed.formatted(date: .abbreviated, time: .shortened))
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                            }
                         }
                     }
 
@@ -29,13 +51,13 @@ struct SettingsView: View {
                         HStack {
                             Text("settings.sync.button")
                             Spacer()
-                            if isSyncing {
+                            if albumCoordinator.isSyncing {
                                 ProgressView()
                             }
                         }
                     }
                     .foregroundColor(.red)
-                    .disabled(isSyncing)
+                    .disabled(albumCoordinator.isSyncing)
                 } header: {
                     Text("settings.sync.header")
                 } footer: {
@@ -128,7 +150,6 @@ struct SettingsView: View {
             .navigationTitle("settings.title")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
-                loadLastSyncDate()
                 loadLibraryStats()
             }
             .alert("settings.account.sign_out", isPresented: $showLogoutAlert) {
@@ -143,36 +164,17 @@ struct SettingsView: View {
     }
 
     private func syncNow() {
-        isSyncing = true
-
         Task {
-            do {
-                albumCoordinator.loadCachedAlbums()
-                try await albumCoordinator.fetchAlbums()
-
-                let now = Date()
-                lastSyncDate = now
-                UserDefaults.standard.set(now, forKey: "lastSyncDate")
-
-                isSyncing = false
-            } catch {
-                // Show error but still stop syncing
-                isSyncing = false
-            }
-        }
-    }
-
-    private func loadLastSyncDate() {
-        if let date = UserDefaults.standard.object(forKey: "lastSyncDate") as? Date {
-            lastSyncDate = date
+            try? await albumCoordinator.sync()
+            loadLibraryStats()
         }
     }
 
     private func loadLibraryStats() {
         let albums = SearchManager.shared.getAllAlbumsFromMetadata()
-        let songs = SearchManager.shared.getAllSongsFromAlbums(albums)
+        let songEntries = SearchManager.shared.getAllSongsIndex()
         albumCount = albums.count
-        songCount = songs.count
-        totalHours = songs.compactMap(\.duration).reduce(0, +) / 3600.0
+        songCount = songEntries.count
+        totalHours = songEntries.compactMap(\.duration).reduce(0, +) / 3600.0
     }
 }

@@ -144,16 +144,8 @@ struct ServerSetupView: View {
                     password: password
                 )
 
-                Task.detached {
-                    do {
-                        try await AlbumStateCoordinator.shared.fetchAlbums()
-
-                        await MainActor.run {
-                            UserDefaults.standard.set(Date(), forKey: "lastSyncDate")
-                        }
-                    } catch {
-                        // TODO: handle this (sync failed but authentication succeeded, user can manually sync later from settings)
-                    }
+                Task {
+                    try? await AlbumStateCoordinator.shared.sync()
                 }
 
                 await MainActor.run {
