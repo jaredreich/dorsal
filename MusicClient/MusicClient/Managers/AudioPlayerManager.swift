@@ -223,9 +223,11 @@ class AudioPlayerManager: NSObject, ObservableObject {
     }
 
     func togglePlayPause() {
-        try? audioPlayer.togglePlayPause()
-        isPlaying = audioPlayer.isPlaying
-        updateNowPlayingInfo()
+        if isPlaying {
+            pause()
+        } else {
+            resume()
+        }
     }
 
     func pause() {
