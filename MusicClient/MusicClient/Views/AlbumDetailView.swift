@@ -280,6 +280,7 @@ struct AlbumDetailView: View {
     }
 
     private func playSong(at index: Int) {
+        guard songs[index].id != audioPlayer.currentSong?.id else { return }
         if isOffline {
             let playableSongs = songs.filter { isSongPlayable($0) }
             guard let playableIndex = playableSongs.firstIndex(where: { $0.id == songs[index].id }) else { return }

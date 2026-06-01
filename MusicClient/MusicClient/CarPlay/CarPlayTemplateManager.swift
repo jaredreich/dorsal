@@ -399,6 +399,12 @@ class CarPlayTemplateManager: NSObject {
                 return
             }
 
+            if self.audioPlayer.currentSong?.id == song.id {
+                self.navigateToNowPlaying()
+                completion()
+                return
+            }
+
             self.showCloudIconIfNeeded(for: song)
             self.playSongs(songs, startIndex: songs.firstIndex(where: { $0.id == song.id }) ?? 0)
             completion()
@@ -410,6 +416,16 @@ class CarPlayTemplateManager: NSObject {
         if !isCached, let songItem = songItems[song.id] {
             songItem.accessoryType = .cloud
             loadingSongItem = songItem
+        }
+    }
+
+    private func navigateToNowPlaying() {
+        guard interfaceController?.topTemplate !== CPNowPlayingTemplate.shared else { return }
+        let stack = interfaceController?.templates ?? []
+        if stack.contains(where: { $0 === CPNowPlayingTemplate.shared }) {
+            interfaceController?.popTemplate(animated: true, completion: nil)
+        } else {
+            interfaceController?.pushTemplate(CPNowPlayingTemplate.shared, animated: true, completion: nil)
         }
     }
 
@@ -456,7 +472,7 @@ class CarPlayTemplateManager: NSObject {
                         self.shouldNavigateToNowPlayingOnStart = false
 
                         Task { @MainActor in
-                            self.interfaceController?.pushTemplate(CPNowPlayingTemplate.shared, animated: true, completion: nil)
+                            self.navigateToNowPlaying()
                         }
                     }
                 }
