@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import AVFoundation
 import MediaPlayer
 import Combine
@@ -35,10 +36,18 @@ class AudioPlayerManager: NSObject, ObservableObject {
     private let audioPlayer = AudioPlayer()
     nonisolated(unsafe) private let equalizerNode = AVAudioUnitEQ(numberOfBands: 10)
     private var timeTracker: Timer?
+    private var pendingSeekTime: TimeInterval?
     private var lastArtworkUrl: String?
+
+    private struct PersistedPlaybackState: Codable {
+        let albumId: String
+        let songId: String
+        let currentTime: TimeInterval
+    }
     private var hasTriggeredPrefetch: Bool = false
     private var nextEnqueuedSongId: String?
     private var pendingPlaybackSongId: String?
+    private var pendingAutoResume: Bool = false
 
     override private init() {
         super.init()
@@ -196,13 +205,30 @@ class AudioPlayerManager: NSObject, ObservableObject {
                 self.duration = self.audioPlayer.time?.total ?? song.duration ?? 0
 
                 if autoPlay {
+                    self.pendingAutoResume = false
+                    self.isPlaying = true
+                } else if self.pendingAutoResume {
+                    // CarPlay restore: engine is already playing — seek while playing
+                    // for reliable seek position, then surface the playing state
+                    self.pendingAutoResume = false
+                    if let seekTime = self.pendingSeekTime {
+                        self.seek(to: seekTime)
+                        self.pendingSeekTime = nil
+                    }
                     self.isPlaying = true
                 } else {
+                    // Seek while engine is still playing (more reliable in SFBAudioEngine),
+                    // then pause at the correct position
+                    if let seekTime = self.pendingSeekTime {
+                        self.seek(to: seekTime)
+                        self.pendingSeekTime = nil
+                    }
                     self.audioPlayer.pause()
                     self.isPlaying = false
                 }
 
                 self.updateNowPlayingInfo()
+                self.savePlaybackState()
                 DownloadManager.shared.addToRecentlyPlayed(albumId: song.albumId)
             } catch {
                 self.isLoading = false
@@ -210,10 +236,10 @@ class AudioPlayerManager: NSObject, ObservableObject {
         }
     }
 
-    func play(queue: [Song], startIndex: Int = 0) {
+    func play(queue: [Song], startIndex: Int = 0, autoPlay: Bool = true) {
         playbackQueue.setQueue(queue, startIndex: startIndex)
         if let song = playbackQueue.currentSong {
-            play(song: song)
+            play(song: song, autoPlay: autoPlay)
         }
     }
 
@@ -283,6 +309,31 @@ class AudioPlayerManager: NSObject, ObservableObject {
         lastArtworkUrl = nil
         playbackQueue.clear()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        UserDefaults.standard.removeObject(forKey: "playbackState")
+    }
+
+    private func savePlaybackState() {
+        guard let song = currentSong else {
+            UserDefaults.standard.removeObject(forKey: "playbackState")
+            return
+        }
+        let state = PersistedPlaybackState(albumId: song.albumId, songId: song.id, currentTime: currentTime)
+        if let data = try? JSONEncoder().encode(state) {
+            UserDefaults.standard.set(data, forKey: "playbackState")
+        }
+    }
+
+    func restorePersistedState(resumeAfterLoad: Bool = false) {
+        guard currentSong == nil,
+              let data = UserDefaults.standard.data(forKey: "playbackState"),
+              let state = try? JSONDecoder().decode(PersistedPlaybackState.self, from: data) else { return }
+
+        let songs = SearchManager.shared.getSongsForAlbum(state.albumId).sortedByTrack()
+        guard let index = songs.firstIndex(where: { $0.id == state.songId }) else { return }
+
+        if state.currentTime > 0 { pendingSeekTime = state.currentTime }
+        pendingAutoResume = resumeAfterLoad
+        play(queue: songs, startIndex: index, autoPlay: false)
     }
 
     private func startTimeTracking() {
@@ -393,6 +444,16 @@ class AudioPlayerManager: NSObject, ObservableObject {
             name: AVAudioSession.interruptionNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+    }
+
+    @objc private func handleAppBackground() {
+        savePlaybackState()
     }
 
     @objc private func handleInterruption(notification: Notification) {
@@ -439,6 +500,7 @@ extension AudioPlayerManager: AudioPlayer.Delegate {
                 self.duration = self.audioPlayer.time?.total ?? song.duration ?? 0
                 self.hasTriggeredPrefetch = false
                 self.updateNowPlayingInfo()
+                self.savePlaybackState()
                 self.enqueueNextSong()
                 DownloadManager.shared.addToRecentlyPlayed(albumId: song.albumId)
             }

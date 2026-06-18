@@ -203,6 +203,7 @@ struct LibraryView: View {
         }
         .onAppear {
             albumCoordinator.loadCachedAlbums()
+            audioPlayer.restorePersistedState()
         }
         .onChange(of: searchText) { newValue in
             updateSongSearchIndex(query: newValue)

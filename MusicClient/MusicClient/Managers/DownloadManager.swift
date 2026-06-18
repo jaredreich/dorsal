@@ -926,6 +926,19 @@ class ImageCacheManager {
         return nil
     }
 
+    func loadLocalImageSync(from url: URL) -> UIImage? {
+        let cacheKey = url.absoluteString as NSString
+        if let cachedImage = memoryCache.object(forKey: cacheKey) {
+            return cachedImage
+        }
+        guard let data = try? Data(contentsOf: url),
+              let image = UIImage(data: data) else {
+            return nil
+        }
+        memoryCache.setObject(image, forKey: cacheKey)
+        return image
+    }
+
     // Load image from local file URL
     func loadLocalImage(from url: URL) async -> UIImage? {
         let cacheKey = url.absoluteString as NSString

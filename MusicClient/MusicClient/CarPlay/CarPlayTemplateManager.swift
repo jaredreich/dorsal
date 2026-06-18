@@ -30,6 +30,14 @@ class CarPlayTemplateManager: NSObject {
         addObservers()
         setupRootTemplate()
         observeAuthStateChanges()
+
+        if audioPlayer.currentSong != nil, !audioPlayer.isPlaying {
+            shouldNavigateToNowPlayingOnStart = true
+            audioPlayer.resume()
+        } else if audioPlayer.currentSong == nil {
+            shouldNavigateToNowPlayingOnStart = true
+            audioPlayer.restorePersistedState(resumeAfterLoad: true)
+        }
     }
 
     func disconnect() {
@@ -237,6 +245,8 @@ class CarPlayTemplateManager: NSObject {
 
         if let cachedImage = imageCache.getCachedImage(localUrl: localUrlIfExists, remoteUrlString: album.imageUrl) {
             item.setImage(cachedImage)
+        } else if let localUrl = localUrlIfExists, let image = imageCache.loadLocalImageSync(from: localUrl) {
+            item.setImage(image)
         } else {
             item.setImage(createPlaceholderImage())
 
@@ -305,6 +315,8 @@ class CarPlayTemplateManager: NSObject {
 
         if let cachedImage = imageCache.getCachedImage(localUrl: localUrlIfExists, remoteUrlString: album.imageUrl) {
             playAllItem.setImage(cachedImage)
+        } else if let localUrl = localUrlIfExists, let image = imageCache.loadLocalImageSync(from: localUrl) {
+            playAllItem.setImage(image)
         } else {
             playAllItem.setImage(createPlaceholderImage())
 
