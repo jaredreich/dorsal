@@ -208,8 +208,8 @@ class AudioPlayerManager: NSObject, ObservableObject {
                     self.pendingAutoResume = false
                     self.isPlaying = true
                 } else if self.pendingAutoResume {
-                    // CarPlay restore: engine is already playing — seek while playing
-                    // for reliable seek position, then surface the playing state
+                    // CarPlay restore (engine is already playing, seek while playing
+                    // for reliable seek position, then surface the playing state)
                     self.pendingAutoResume = false
                     if let seekTime = self.pendingSeekTime {
                         self.seek(to: seekTime)
