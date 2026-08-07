@@ -113,6 +113,17 @@ class SearchManager {
         return result
     }
 
+    func updateSongsIndex(forAlbumIds albumIds: Set<String>) {
+        var entries = songsSearchCache.filter { !albumIds.contains($0.albumId) }
+        for albumId in albumIds {
+            let songs = getSongsForAlbum(albumId)
+            entries.append(contentsOf: songs.map {
+                SongSearchEntry(id: $0.id, name: $0.name, artistName: $0.artistName, albumName: $0.albumName, albumId: $0.albumId, duration: $0.duration)
+            })
+        }
+        replaceSongsIndex(entries)
+    }
+
     func getAllSongsIndex() -> [SongSearchEntry] {
         return songsSearchCache
     }

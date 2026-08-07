@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import Intents
 
+@MainActor
 class DownloadManager: NSObject, ObservableObject {
     static let shared = DownloadManager()
 
@@ -129,7 +130,7 @@ class DownloadManager: NSObject, ObservableObject {
             let data = try JSONEncoder().encode(metadata)
             try data.write(to: url)
         } catch {
-            // TODO: handle this
+            print("Failed to save album metadata for \(albumId): \(error)")
         }
 
         // Update the in-memory albums index (skip during batch sync)
@@ -159,7 +160,7 @@ class DownloadManager: NSObject, ObservableObject {
     @discardableResult
     private func downloadSong(_ song: Song, awaitCompletion: Bool = false) async throws -> URL {
         // Generate asset URL dynamically with current quality settings
-        guard let assetUrlString = await JellyfinService.shared.getAssetUrl(for: song),
+        guard let assetUrlString = JellyfinService.shared.getAssetUrl(for: song),
               let assetUrl = URL(string: assetUrlString) else {
             throw NSError(domain: "DownloadManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not generate assetUrl"])
         }
@@ -253,7 +254,7 @@ class DownloadManager: NSObject, ObservableObject {
                 let (data, _) = try await URLSession.shared.data(from: imageUrl)
                 try data.write(to: destinationUrl)
             } catch {
-                // TODO: handle this
+                print("Failed to download album art for \(album.id): \(error)")
             }
         }
     }
@@ -267,6 +268,10 @@ class DownloadManager: NSObject, ObservableObject {
         activeDownloads.removeValue(forKey: songId)
         downloadProgress.removeValue(forKey: songId)
         downloadingSongIds.remove(songId)
+
+        if let continuation = downloadContinuations.removeValue(forKey: songId) {
+            continuation.resume(throwing: CancellationError())
+        }
     }
 
     func albumDownloadProgress(albumId: String) -> Double {
@@ -380,7 +385,19 @@ class DownloadManager: NSObject, ObservableObject {
         return nil
     }
 
-    private static func extensionForMimeType(_ mimeType: String) -> String {
+    nonisolated private static func resolveSongsDirectory(_ fm: FileManager) -> URL {
+        let appGroupId = "group.com.jaredreich.shared"
+        let base: URL
+        if let container = fm.containerURL(forSecurityApplicationGroupIdentifier: appGroupId) {
+            base = container.appendingPathComponent("Storage", isDirectory: true)
+        } else {
+            base = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Storage", isDirectory: true)
+        }
+        return base.appendingPathComponent("songs", isDirectory: true)
+    }
+
+    nonisolated private static func extensionForMimeType(_ mimeType: String) -> String {
         switch mimeType.lowercased() {
         case "audio/mp4", "audio/aac", "audio/x-m4a", "audio/mp4a-latm": return "m4a"
         case "audio/mpeg", "audio/mp3": return "mp3"
@@ -445,7 +462,7 @@ class DownloadManager: NSObject, ObservableObject {
             let (data, _) = try await URLSession.shared.data(from: imageUrl)
             try data.write(to: albumArtUrl)
         } catch {
-            // TODO: handle this
+            print("Failed to cache album art for \(albumId): \(error)")
         }
     }
 
@@ -518,7 +535,7 @@ class DownloadManager: NSObject, ObservableObject {
                 cachedContentVersion += 1
             }
         } catch {
-            // TODO: handle this
+            print("Failed to clear cache: \(error)")
         }
     }
 
@@ -540,7 +557,7 @@ class DownloadManager: NSObject, ObservableObject {
             // Notify observers that cached content changed
             cachedContentVersion += 1
         } catch {
-            // TODO: handle this
+            print("Failed to delete song \(songId) from cache: \(error)")
         }
     }
 
@@ -668,7 +685,7 @@ class DownloadManager: NSObject, ObservableObject {
                 try fileManager.removeItem(at: fileUrl)
             }
         } catch {
-            // TODO: handle this
+            print("Failed to clear album art cache: \(error)")
         }
     }
 
@@ -784,10 +801,9 @@ class DownloadManager: NSObject, ObservableObject {
 }
 
 extension DownloadManager: URLSessionDownloadDelegate {
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+    nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let songId = downloadTask.taskDescription else { return }
 
-        // Derive file extension from the HTTP response
         let fileExtension: String
         if let mimeType = downloadTask.response?.mimeType {
             fileExtension = Self.extensionForMimeType(mimeType)
@@ -797,15 +813,18 @@ extension DownloadManager: URLSessionDownloadDelegate {
         } else {
             fileExtension = "m4a"
         }
-        let destinationUrl = songsDirectory.appendingPathComponent("\(songId).\(fileExtension)")
+
+        let fm = FileManager.default
+        let songsDir = Self.resolveSongsDirectory(fm)
+        let destinationUrl = songsDir.appendingPathComponent("\(songId).\(fileExtension)")
 
         do {
-            if fileManager.fileExists(atPath: destinationUrl.path) {
-                try fileManager.removeItem(at: destinationUrl)
+            if fm.fileExists(atPath: destinationUrl.path) {
+                try fm.removeItem(at: destinationUrl)
             }
-            try fileManager.moveItem(at: location, to: destinationUrl)
+            try fm.moveItem(at: location, to: destinationUrl)
 
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self.completedSongs.insert(songId)
                 self.cachedSongIds.insert(songId)
                 self.activeDownloads.removeValue(forKey: songId)
@@ -813,20 +832,15 @@ extension DownloadManager: URLSessionDownloadDelegate {
                 self.downloadingSongIds.remove(songId)
                 self.activeDownloadCount = self.activeDownloads.count
 
-                // Resume continuation if waiting
                 if let continuation = self.downloadContinuations.removeValue(forKey: songId) {
                     continuation.resume(returning: destinationUrl)
                 }
 
-                // Check if any album download is now complete
                 self.checkPendingAlbumDownloads()
-
-                // Notify observers that cached content changed
                 self.cachedContentVersion += 1
             }
         } catch {
-            DispatchQueue.main.async {
-                // Resume continuation with error if waiting
+            Task { @MainActor in
                 if let continuation = self.downloadContinuations.removeValue(forKey: songId) {
                     continuation.resume(throwing: error)
                 }
@@ -834,26 +848,25 @@ extension DownloadManager: URLSessionDownloadDelegate {
         }
     }
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+    nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         guard let songId = downloadTask.taskDescription else { return }
 
         let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
-        DispatchQueue.main.async {
+        Task { @MainActor in
             self.downloadProgress[songId] = progress
         }
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let error = error else { return }
         guard let songId = task.taskDescription else { return }
 
-        DispatchQueue.main.async {
+        Task { @MainActor in
             self.activeDownloads.removeValue(forKey: songId)
             self.downloadProgress.removeValue(forKey: songId)
             self.downloadingSongIds.remove(songId)
             self.activeDownloadCount = self.activeDownloads.count
 
-            // Resume continuation with error if waiting
             if let continuation = self.downloadContinuations.removeValue(forKey: songId) {
                 continuation.resume(throwing: error)
             }
@@ -1190,6 +1203,74 @@ class AlbumStateCoordinator: ObservableObject {
             // Standard sort by artist and year
             return filtered.sorted(by: Album.standardSort)
         }
+    }
+
+    func quickSync() async throws {
+        guard let lastSync = lastSyncDate else {
+            try await sync()
+            return
+        }
+
+        isSyncing = true
+        albumSyncProgress = 0
+
+        do {
+            let changedAlbums = try await jellyfinService.fetchAlbumsSince(lastSync) { [weak self] progress in
+                self?.albumSyncProgress = progress * 0.5
+            }
+
+            let changedSongMap = try await jellyfinService.fetchSongIdsSince(lastSync)
+            let albumIdsFromSongs = Set(changedSongMap.values)
+
+            let changedAlbumIds = Set(changedAlbums.map { $0.id })
+            let additionalAlbumIds = albumIdsFromSongs.subtracting(changedAlbumIds)
+
+            var allChangedAlbums = changedAlbums
+            for albumId in additionalAlbumIds {
+                if let album = try? await jellyfinService.fetchAlbum(id: albumId) {
+                    allChangedAlbums.append(album)
+                }
+            }
+
+            // Quick sync only adds/updates albums - it does NOT delete albums
+            // because fetchAlbumsSince only returns changed items, not the full server list
+            // Deletion of removed albums only happens during full sync
+            mergeAlbums(allChangedAlbums)
+            SearchManager.shared.replaceAlbumsIndex(albums)
+
+            for (i, album) in allChangedAlbums.enumerated() {
+                let songs = try await jellyfinService.fetchSongs(for: album.id)
+                downloadManager.saveAlbumMetadata(albumId: album.id, album: album, songs: songs, updateIndex: false)
+                albumSyncProgress = 0.5 + 0.5 * Double(i + 1) / Double(allChangedAlbums.count)
+            }
+
+            let affectedAlbumIds = Set(allChangedAlbums.map { $0.id })
+            SearchManager.shared.updateSongsIndex(forAlbumIds: affectedAlbumIds)
+
+            let now = Date()
+            lastSyncDate = now
+            UserDefaults.standard.set(now, forKey: "lastSyncDate")
+            lastIndexedDate = now
+            UserDefaults.standard.set(now, forKey: "lastIndexedDate")
+            UserDefaults.standard.set(true, forKey: "isSongsIndexed")
+            songsIndexState = .indexed
+
+            isSyncing = false
+            albumSyncProgress = 0
+        } catch {
+            isSyncing = false
+            albumSyncProgress = 0
+            throw error
+        }
+    }
+
+    private func mergeAlbums(_ changedAlbums: [Album]) {
+        var albumDict = Dictionary(uniqueKeysWithValues: albums.map { ($0.id, $0) })
+        for album in changedAlbums {
+            albumDict[album.id] = album
+        }
+        albums = Array(albumDict.values)
+        updateOfflineAlbums()
     }
 
     func sync() async throws {

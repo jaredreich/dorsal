@@ -245,36 +245,7 @@ class JellyfinService: ObservableObject {
                 totalCount = json["TotalRecordCount"] as? Int
             }
 
-            let pageAlbums = items.compactMap { item -> Album? in
-                guard let id = item["Id"] as? String,
-                      let name = item["Name"] as? String,
-                      let albumArtist = item["AlbumArtist"] as? String else {
-                    return nil
-                }
-
-                let year = item["ProductionYear"] as? Int
-                let songCount = item["ChildCount"] as? Int
-                let imageUrl = self.getImageUrl(itemId: id)
-                let imageTag = (item["ImageTags"] as? [String: String])?["Primary"]
-
-                var dateAdded: Date? = nil
-                if let dateString = item["DateCreated"] as? String {
-                    let formatter = ISO8601DateFormatter()
-                    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                    dateAdded = formatter.date(from: dateString)
-                }
-
-                return Album(
-                    id: id,
-                    name: name,
-                    artistName: albumArtist,
-                    year: year,
-                    imageUrl: imageUrl,
-                    songCount: songCount,
-                    dateAdded: dateAdded,
-                    imageTag: imageTag
-                )
-            }
+            let pageAlbums = items.compactMap { item in parseAlbum(from: item) }
 
             allAlbums.append(contentsOf: pageAlbums)
             lastPageCount = items.count
@@ -286,6 +257,152 @@ class JellyfinService: ObservableObject {
         } while lastPageCount == pageSize && (totalCount == nil || startIndex < totalCount!)
 
         albums = allAlbums
+    }
+
+    func fetchAlbumsSince(_ date: Date, onProgress: ((Double) -> Void)? = nil) async throws -> [Album] {
+        guard let serverUrl = authState.serverUrl,
+              let userId = authState.userId,
+              let _ = authState.accessToken else {
+            throw JellyfinError.invalidCredentials
+        }
+
+        let dateString = ISO8601DateFormatter().string(from: date)
+        let pageSize = 500
+        var startIndex = 0
+        var totalCount: Int? = nil
+        var allAlbums: [Album] = []
+        var lastPageCount = pageSize
+
+        repeat {
+            let urlString = "\(serverUrl)/Users/\(userId)/Items?IncludeItemTypes=MusicAlbum&Recursive=true&Fields=ProductionYear,DateCreated&MinDateLastSaved=\(dateString)&StartIndex=\(startIndex)&Limit=\(pageSize)"
+
+            guard let url = URL(string: urlString) else {
+                throw JellyfinError.invalidURL
+            }
+
+            let request = createRequest(url: url, includeToken: true)
+            let (data, _) = try await URLSession.shared.data(for: request)
+
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let items = json["Items"] as? [[String: Any]] else {
+                throw JellyfinError.decodingError(NSError(domain: "JellyfinService", code: -1))
+            }
+
+            if totalCount == nil {
+                totalCount = json["TotalRecordCount"] as? Int
+            }
+
+            let pageAlbums = items.compactMap { item in parseAlbum(from: item) }
+            allAlbums.append(contentsOf: pageAlbums)
+            lastPageCount = items.count
+            startIndex += items.count
+
+            if let total = totalCount, total > 0 {
+                onProgress?(Double(min(startIndex, total)) / Double(total))
+            }
+        } while lastPageCount == pageSize && (totalCount == nil || startIndex < totalCount!)
+
+        return allAlbums
+    }
+
+    func fetchSongIdsSince(_ date: Date) async throws -> [String: String] {
+        guard let serverUrl = authState.serverUrl,
+              let userId = authState.userId,
+              let _ = authState.accessToken else {
+            throw JellyfinError.invalidCredentials
+        }
+
+        let dateString = ISO8601DateFormatter().string(from: date)
+        let pageSize = 500
+        var startIndex = 0
+        var totalCount: Int? = nil
+        var songAlbumMap: [String: String] = [:]
+        var lastPageCount = pageSize
+
+        repeat {
+            let urlString = "\(serverUrl)/Users/\(userId)/Items?IncludeItemTypes=Audio&Recursive=true&Fields=&MinDateLastSaved=\(dateString)&StartIndex=\(startIndex)&Limit=\(pageSize)"
+
+            guard let url = URL(string: urlString) else {
+                throw JellyfinError.invalidURL
+            }
+
+            let request = createRequest(url: url, includeToken: true)
+            let (data, _) = try await URLSession.shared.data(for: request)
+
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let items = json["Items"] as? [[String: Any]] else {
+                throw JellyfinError.decodingError(NSError(domain: "JellyfinService", code: -1))
+            }
+
+            if totalCount == nil {
+                totalCount = json["TotalRecordCount"] as? Int
+            }
+
+            for item in items {
+                if let id = item["Id"] as? String,
+                   let albumId = item["AlbumId"] as? String {
+                    songAlbumMap[id] = albumId
+                }
+            }
+
+            lastPageCount = items.count
+            startIndex += items.count
+        } while lastPageCount == pageSize && (totalCount == nil || startIndex < totalCount!)
+
+        return songAlbumMap
+    }
+
+    func fetchAlbum(id albumId: String) async throws -> Album? {
+        guard let serverUrl = authState.serverUrl,
+              let userId = authState.userId,
+              let _ = authState.accessToken else {
+            throw JellyfinError.invalidCredentials
+        }
+
+        let urlString = "\(serverUrl)/Users/\(userId)/Items/\(albumId)"
+        guard let url = URL(string: urlString) else {
+            throw JellyfinError.invalidURL
+        }
+
+        let request = createRequest(url: url, includeToken: true)
+        let (data, _) = try await URLSession.shared.data(for: request)
+
+        guard let item = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw JellyfinError.decodingError(NSError(domain: "JellyfinService", code: -1))
+        }
+
+        return parseAlbum(from: item)
+    }
+
+    private func parseAlbum(from item: [String: Any]) -> Album? {
+        guard let id = item["Id"] as? String,
+              let name = item["Name"] as? String,
+              let albumArtist = item["AlbumArtist"] as? String else {
+            return nil
+        }
+
+        let year = item["ProductionYear"] as? Int
+        let songCount = item["ChildCount"] as? Int
+        let imageUrl = self.getImageUrl(itemId: id)
+        let imageTag = (item["ImageTags"] as? [String: String])?["Primary"]
+
+        var dateAdded: Date? = nil
+        if let dateString = item["DateCreated"] as? String {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            dateAdded = formatter.date(from: dateString)
+        }
+
+        return Album(
+            id: id,
+            name: name,
+            artistName: albumArtist,
+            year: year,
+            imageUrl: imageUrl,
+            songCount: songCount,
+            dateAdded: dateAdded,
+            imageTag: imageTag
+        )
     }
 
     func fetchSongs(for albumId: String) async throws -> [Song] {
@@ -349,9 +466,10 @@ class JellyfinService: ObservableObject {
               let token = authState.accessToken,
               let encodedToken = token.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
 
-        return audioQuality == .original
-            ? "\(serverUrl)/Audio/\(itemId)/stream?static=true&api_key=\(encodedToken)"
-            : "\(serverUrl)/Audio/\(itemId)/universal?audioCodec=aac&container=m4a&transcodingContainer=m4a&maxStreamingBitrate=\(audioQuality.bitrate!)&transcodingProtocol=http&api_key=\(encodedToken)"
+        guard let bitrate = audioQuality.bitrate else {
+            return "\(serverUrl)/Audio/\(itemId)/stream?static=true&api_key=\(encodedToken)"
+        }
+        return "\(serverUrl)/Audio/\(itemId)/universal?audioCodec=aac&container=m4a&transcodingContainer=m4a&maxStreamingBitrate=\(bitrate)&transcodingProtocol=http&api_key=\(encodedToken)"
     }
     
     func getAssetUrl(for song: Song) -> String? {

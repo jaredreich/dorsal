@@ -48,6 +48,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
     private var nextEnqueuedSongId: String?
     private var pendingPlaybackSongId: String?
     private var pendingAutoResume: Bool = false
+    private var wasPlayingBeforeInterruption: Bool = false
 
     override private init() {
         super.init()
@@ -64,7 +65,9 @@ class AudioPlayerManager: NSObject, ObservableObject {
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
-        } catch {}
+        } catch {
+            print("Failed to configure audio session: \(error)")
+        }
     }
 
     private func setupEqualizer() {
@@ -463,11 +466,13 @@ class AudioPlayerManager: NSObject, ObservableObject {
 
         switch type {
         case .began:
+            wasPlayingBeforeInterruption = isPlaying
             pause()
         case .ended:
             guard let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
             try? AVAudioSession.sharedInstance().setActive(true)
             if AVAudioSession.InterruptionOptions(rawValue: optionsValue).contains(.shouldResume),
+               wasPlayingBeforeInterruption,
                currentSong != nil {
                 resume()
             }

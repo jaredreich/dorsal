@@ -13,7 +13,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
-            // TODO: handle this
+            print("Failed to configure audio session: \(error)")
         }
 
         // Make app discoverable by CarPlay

@@ -4,6 +4,7 @@ struct SettingsView: View {
     @EnvironmentObject var jellyfinService: JellyfinService
     @EnvironmentObject var albumCoordinator: AlbumStateCoordinator
     @State private var showLogoutAlert = false
+    @State private var showFullSyncAlert = false
     @State private var albumCount = 0
     @State private var songCount = 0
     @State private var totalHours = 0.0
@@ -27,33 +28,40 @@ struct SettingsView: View {
                     }
 
                     HStack {
-                        Text("settings.sync.last_indexed")
+                        Text("settings.sync.indexed")
                             .foregroundColor(.secondary)
                         Spacer()
                         switch albumCoordinator.songsIndexState {
                         case .notIndexed:
-                            Text("settings.sync.not_indexed")
-                                .foregroundColor(.secondary)
-                                .font(.caption)
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.red)
+                                .font(.system(size: 16))
                         case .indexing(let progress):
                             CircularDownloadProgress(progress: progress)
                                 .frame(width: 20, height: 20)
                         case .indexed:
-                            if let lastIndexed = albumCoordinator.lastIndexedDate {
-                                Text(lastIndexed.formatted(date: .abbreviated, time: .shortened))
-                                    .foregroundColor(.secondary)
-                                    .font(.caption)
-                            }
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.system(size: 16))
                         }
                     }
 
-                    Button(action: syncNow) {
+                    Button(action: quickSync) {
                         HStack {
-                            Text("settings.sync.button")
+                            Text("settings.sync.quick_sync")
                             Spacer()
                             if albumCoordinator.isSyncing {
-                                ProgressView()
+                                CircularDownloadProgress(progress: albumCoordinator.albumSyncProgress)
+                                    .frame(width: 20, height: 20)
                             }
+                        }
+                    }
+                    .disabled(albumCoordinator.isSyncing)
+
+                    Button(action: { showFullSyncAlert = true }) {
+                        HStack {
+                            Text("settings.sync.full_sync")
+                            Spacer()
                         }
                     }
                     .foregroundColor(.red)
@@ -160,10 +168,25 @@ struct SettingsView: View {
             } message: {
                 Text("settings.account.sign_out_alert.message")
             }
+            .alert("settings.sync.full_sync", isPresented: $showFullSyncAlert) {
+                Button("common.cancel", role: .cancel) {}
+                Button("settings.sync.full_sync", role: .destructive) {
+                    fullSync()
+                }
+            } message: {
+                Text("settings.sync.full_sync_alert.message")
+            }
         }
     }
 
-    private func syncNow() {
+    private func quickSync() {
+        Task {
+            try? await albumCoordinator.quickSync()
+            loadLibraryStats()
+        }
+    }
+
+    private func fullSync() {
         Task {
             try? await albumCoordinator.sync()
             loadLibraryStats()
