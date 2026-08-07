@@ -134,9 +134,9 @@ struct StorageSettingsView: View {
 
     private func updateSizes() {
         Task.detached(priority: .userInitiated) {
-            let cache = DownloadManager.shared.getCacheSizeInMB()
-            let downloads = DownloadManager.shared.getDownloadsSizeInMB()
-            let albumArt = DownloadManager.shared.getAlbumArtSizeInMB()
+            let cache = await DownloadManager.shared.getCacheSizeInMB()
+            let downloads = await DownloadManager.shared.getDownloadsSizeInMB()
+            let albumArt = await DownloadManager.shared.getAlbumArtSizeInMB()
             await MainActor.run {
                 self.cacheSize = cache
                 self.downloadsSize = downloads
