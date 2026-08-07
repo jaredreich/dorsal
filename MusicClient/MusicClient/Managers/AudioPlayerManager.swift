@@ -5,6 +5,57 @@ import MediaPlayer
 import Combine
 import SFBAudioEngine
 
+actor EqualizerActor {
+    private let equalizerNode: AVAudioUnitEQ
+    private let lock = OSAllocatedUnfairLock()
+
+    init(frequencies: [Float], bandwidth: Float = 1.0) {
+        let bandCount = frequencies.count
+        self.equalizerNode = AVAudioUnitEQ(numberOfBands: bandCount)
+        for (i, freq) in frequencies.enumerated() {
+            guard i < equalizerNode.bands.count else { break }
+            let band = equalizerNode.bands[i]
+            band.filterType = .parametric
+            band.frequency = freq
+            band.bandwidth = bandwidth
+            band.bypass = false
+        }
+    }
+
+    nonisolated var node: AVAudioUnitEQ {
+        equalizerNode
+    }
+
+    func setGain(band: Int, gain: Float) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard band >= 0 && band < equalizerNode.bands.count else { return }
+        equalizerNode.bands[band].gain = gain
+    }
+
+    func setGains(_ gains: [Float], enabled: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        for i in 0..<min(gains.count, equalizerNode.bands.count) {
+            equalizerNode.bands[i].gain = enabled ? gains[i] : 0
+        }
+    }
+
+    func setEnabled(_ enabled: Bool, gains: [Float]) {
+        lock.lock()
+        defer { lock.unlock() }
+        for i in 0..<min(gains.count, equalizerNode.bands.count) {
+            equalizerNode.bands[i].gain = enabled ? gains[i] : 0
+        }
+    }
+
+    func getGains() -> [Float] {
+        lock.lock()
+        defer { lock.unlock() }
+        return equalizerNode.bands.map { $0.gain }
+    }
+}
+
 @MainActor
 class AudioPlayerManager: NSObject, ObservableObject {
     static let shared = AudioPlayerManager()
@@ -34,7 +85,8 @@ class AudioPlayerManager: NSObject, ObservableObject {
     var hasNext: Bool { playbackQueue.hasNext }
 
     private let audioPlayer = AudioPlayer()
-    nonisolated(unsafe) private let equalizerNode = AVAudioUnitEQ(numberOfBands: 10)
+    private let equalizerActor = EqualizerActor(frequencies: EqualizerPreset.bandFrequencies)
+    nonisolated(unsafe) private let equalizerNodeRef: AVAudioUnitEQ
     private var timeTracker: Timer?
     private var pendingSeekTime: TimeInterval?
     private var lastArtworkUrl: String?
@@ -51,6 +103,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
     private var wasPlayingBeforeInterruption: Bool = false
 
     override private init() {
+        self.equalizerNodeRef = equalizerActor.node
         super.init()
         audioPlayer.delegate = self
         loadEqualizerState()
@@ -71,16 +124,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
     }
 
     private func setupEqualizer() {
-        for (i, freq) in EqualizerPreset.bandFrequencies.enumerated() {
-            let band = equalizerNode.bands[i]
-            band.filterType = .parametric
-            band.frequency = freq
-            band.bandwidth = 1.0
-            band.bypass = false
-            band.gain = isEqualizerEnabled ? equalizerGains[i] : 0
-        }
-
-        let eq = equalizerNode
+        let eq = equalizerActor.node
         audioPlayer.modifyProcessingGraph { engine in
             engine.attach(eq)
             let format = self.audioPlayer.sourceNode.outputFormat(forBus: 0)
@@ -93,7 +137,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
         guard band >= 0 && band < 10 else { return }
         equalizerGains[band] = gain
         if isEqualizerEnabled {
-            equalizerNode.bands[band].gain = gain
+            Task { await equalizerActor.setGain(band: band, gain: gain) }
         }
     }
 
@@ -118,9 +162,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
     }
 
     private func applyCurrentGains() {
-        for i in 0..<10 {
-            equalizerNode.bands[i].gain = isEqualizerEnabled ? equalizerGains[i] : 0
-        }
+        Task { await equalizerActor.setGains(equalizerGains, enabled: isEqualizerEnabled) }
     }
 
     private func loadEqualizerState() {
@@ -513,8 +555,8 @@ extension AudioPlayerManager: AudioPlayer.Delegate {
     }
 
     nonisolated func audioPlayer(_ audioPlayer: AudioPlayer, reconfigureProcessingGraph engine: AVAudioEngine, with format: AVAudioFormat) -> AVAudioNode {
-        engine.connect(equalizerNode, to: audioPlayer.mainMixerNode, format: format)
-        return equalizerNode
+        engine.connect(equalizerNodeRef, to: audioPlayer.mainMixerNode, format: format)
+        return equalizerNodeRef
     }
 
     nonisolated func audioPlayerEndOfAudio(_ audioPlayer: AudioPlayer) {
