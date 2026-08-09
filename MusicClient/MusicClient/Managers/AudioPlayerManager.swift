@@ -7,23 +7,22 @@ import SFBAudioEngine
 
 actor EqualizerActor {
     private let equalizerNode: AVAudioUnitEQ
+    nonisolated let node: AVAudioUnitEQ
     private let lock = OSAllocatedUnfairLock()
 
     init(frequencies: [Float], bandwidth: Float = 1.0) {
         let bandCount = frequencies.count
-        self.equalizerNode = AVAudioUnitEQ(numberOfBands: bandCount)
+        let eq = AVAudioUnitEQ(numberOfBands: bandCount)
         for (i, freq) in frequencies.enumerated() {
-            guard i < equalizerNode.bands.count else { break }
-            let band = equalizerNode.bands[i]
+            guard i < eq.bands.count else { break }
+            let band = eq.bands[i]
             band.filterType = .parametric
             band.frequency = freq
             band.bandwidth = bandwidth
             band.bypass = false
         }
-    }
-
-    nonisolated var node: AVAudioUnitEQ {
-        equalizerNode
+        self.equalizerNode = eq
+        self.node = eq
     }
 
     func setGain(band: Int, gain: Float) {
@@ -86,7 +85,6 @@ class AudioPlayerManager: NSObject, ObservableObject {
 
     private let audioPlayer = AudioPlayer()
     private let equalizerActor = EqualizerActor(frequencies: EqualizerPreset.bandFrequencies)
-    nonisolated(unsafe) private let equalizerNodeRef: AVAudioUnitEQ
     private var timeTracker: Timer?
     private var pendingSeekTime: TimeInterval?
     private var lastArtworkUrl: String?
@@ -103,7 +101,6 @@ class AudioPlayerManager: NSObject, ObservableObject {
     private var wasPlayingBeforeInterruption: Bool = false
 
     override private init() {
-        self.equalizerNodeRef = equalizerActor.node
         super.init()
         audioPlayer.delegate = self
         loadEqualizerState()
@@ -555,8 +552,9 @@ extension AudioPlayerManager: AudioPlayer.Delegate {
     }
 
     nonisolated func audioPlayer(_ audioPlayer: AudioPlayer, reconfigureProcessingGraph engine: AVAudioEngine, with format: AVAudioFormat) -> AVAudioNode {
-        engine.connect(equalizerNodeRef, to: audioPlayer.mainMixerNode, format: format)
-        return equalizerNodeRef
+        let eq = equalizerActor.node
+        engine.connect(eq, to: audioPlayer.mainMixerNode, format: format)
+        return eq
     }
 
     nonisolated func audioPlayerEndOfAudio(_ audioPlayer: AudioPlayer) {
