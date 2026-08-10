@@ -3,7 +3,7 @@ import AVKit
 
 struct NowPlayingView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerManager
-    @ObservedObject private var themeManager = ThemeManager.shared
+    @EnvironmentObject var themeManager: ThemeManager
     @Binding var showNowPlaying: Bool
     @State private var isScrubbing = false
     @State private var scrubTime: TimeInterval = 0

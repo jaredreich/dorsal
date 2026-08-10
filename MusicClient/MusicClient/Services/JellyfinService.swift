@@ -1,6 +1,25 @@
 import Foundation
 import UIKit
 
+@MainActor
+protocol JellyfinServicing: ObservableObject {
+    var authState: AuthState { get set }
+    var albums: [Album] { get set }
+    var isLoading: Bool { get set }
+    var errorMessage: String? { get set }
+    var audioQuality: AudioQuality { get set }
+    func authenticate(serverUrl: String, username: String, password: String) async throws
+    func logout()
+    func fetchAllSongs(onProgress: ((Double) -> Void)?) async throws -> [Song]
+    func fetchAlbums(onProgress: ((Double) -> Void)?) async throws
+    func fetchAlbumsSince(_ date: Date, onProgress: ((Double) -> Void)?) async throws -> [Album]
+    func fetchSongIdsSince(_ date: Date) async throws -> [String: String]
+    func fetchAlbum(id albumId: String) async throws -> Album?
+    func fetchSongs(for albumId: String) async throws -> [Song]
+    func getAssetUrl(itemId: String) -> String?
+    func getAssetUrl(for song: Song) -> String?
+}
+
 enum JellyfinError: Error {
     case invalidURL
     case invalidCredentials
@@ -35,7 +54,7 @@ enum AudioQuality: String, CaseIterable, Codable {
 }
 
 @MainActor
-class JellyfinService: ObservableObject {
+class JellyfinService: JellyfinServicing {
     static let shared = JellyfinService()
 
     @Published var authState: AuthState
@@ -48,9 +67,10 @@ class JellyfinService: ObservableObject {
         }
     }
 
-    private let keychainManager = KeychainManager.shared
+    private let keychainManager: KeychainManaging
 
-    private init() {
+    init(keychainManager: KeychainManaging = KeychainManager.shared) {
+        self.keychainManager = keychainManager
         self.authState = keychainManager.getAuthState()
         self.audioQuality = Self.loadAudioQuality()
     }

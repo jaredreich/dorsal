@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct AppearanceSettingsView: View {
-    @ObservedObject private var themeManager = ThemeManager.shared
+    @EnvironmentObject var themeManager: ThemeManager
     @State private var selectedColor: Color = ThemeManager.shared.accentColor
 
     var body: some View {

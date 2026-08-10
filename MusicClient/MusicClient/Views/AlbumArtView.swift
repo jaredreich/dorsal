@@ -8,10 +8,11 @@ struct AlbumArtView: View {
     @State private var loadedImage: UIImage?
     @State private var isLoading = false
 
-    private let imageCache = ImageCacheManager.shared
+    @EnvironmentObject var imageCache: ImageCacheManager
+    @EnvironmentObject var downloadManager: DownloadManager
 
     private var localImageUrl: URL? {
-        let albumArtUrl = DownloadManager.shared.getAlbumArtUrl(for: albumId)
+        let albumArtUrl = downloadManager.getAlbumArtUrl(for: albumId)
         return FileManager.default.fileExists(atPath: albumArtUrl.path) ? albumArtUrl : nil
     }
 
@@ -68,7 +69,7 @@ struct AlbumArtView: View {
         let image = await imageCache.loadImage(
             localUrl: localImageUrl,
             remoteUrlString: imageUrl,
-            saveToUrl: DownloadManager.shared.getAlbumArtUrl(for: albumId)
+            saveToUrl: downloadManager.getAlbumArtUrl(for: albumId)
         )
 
         loadedImage = image

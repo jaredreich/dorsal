@@ -100,7 +100,16 @@ class AudioPlayerManager: NSObject, ObservableObject {
     private var pendingAutoResume: Bool = false
     private var wasPlayingBeforeInterruption: Bool = false
 
-    override private init() {
+    private let downloadManager: any DownloadManaging
+    private let searchManager: any SearchManaging
+    private let imageCache: any ImageCaching
+
+    init(downloadManager: (any DownloadManaging)? = nil,
+         searchManager: (any SearchManaging)? = nil,
+         imageCache: (any ImageCaching)? = nil) {
+        self.downloadManager = downloadManager ?? DownloadManager.shared
+        self.searchManager = searchManager ?? SearchManager.shared
+        self.imageCache = imageCache ?? ImageCacheManager.shared
         super.init()
         audioPlayer.delegate = self
         loadEqualizerState()
@@ -193,9 +202,9 @@ class AudioPlayerManager: NSObject, ObservableObject {
         guard nextEnqueuedSongId == nil,
               playbackQueue.hasNext,
               let nextSong = playbackQueue.peekNext(),
-              DownloadManager.shared.isCached(songId: nextSong.id) else { return }
+              downloadManager.isCached(songId: nextSong.id) else { return }
 
-        guard let url = DownloadManager.shared.existingStorageUrl(for: nextSong.id) else { return }
+        guard let url = downloadManager.existingStorageUrl(for: nextSong.id) else { return }
         do {
             try audioPlayer.enqueue(makeDecoder(for: url))
             nextEnqueuedSongId = nextSong.id
@@ -203,7 +212,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
     }
 
     func play(song: Song, autoPlay: Bool = true) {
-        let isCached = DownloadManager.shared.isCached(songId: song.id)
+        let isCached = downloadManager.isCached(songId: song.id)
 
         if isCached {
             // Song is ready — stop current playback immediately
@@ -225,7 +234,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
 
         Task {
             do {
-                let cachedUrl = try await DownloadManager.shared.downloadAndCache(song)
+                let cachedUrl = try await downloadManager.downloadAndCache(song)
                 guard self.playbackQueue.currentSong?.id == songId else { return }
 
                 // Stop current playback now that the new song is ready
@@ -271,7 +280,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
 
                 self.updateNowPlayingInfo()
                 self.savePlaybackState()
-                DownloadManager.shared.addToRecentlyPlayed(albumId: song.albumId)
+                downloadManager.addToRecentlyPlayed(albumId: song.albumId)
             } catch {
                 self.isLoading = false
             }
@@ -370,7 +379,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
               let data = UserDefaults.standard.data(forKey: "playbackState"),
               let state = try? JSONDecoder().decode(PersistedPlaybackState.self, from: data) else { return }
 
-        let songs = SearchManager.shared.getSongsForAlbum(state.albumId).sortedByTrack()
+        let songs = searchManager.getSongsForAlbum(state.albumId).sortedByTrack()
         guard let index = songs.firstIndex(where: { $0.id == state.songId }) else { return }
 
         if state.currentTime > 0 { pendingSeekTime = state.currentTime }
@@ -400,11 +409,11 @@ class AudioPlayerManager: NSObject, ObservableObject {
 
         hasTriggeredPrefetch = true
 
-        if DownloadManager.shared.isCached(songId: nextSong.id) {
+        if downloadManager.isCached(songId: nextSong.id) {
             enqueueNextSong()
         } else {
             Task {
-                _ = try? await DownloadManager.shared.downloadAndCache(nextSong)
+                _ = try? await downloadManager.downloadAndCache(nextSong)
                 self.enqueueNextSong()
             }
         }
@@ -413,7 +422,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
     private func updateNowPlayingInfo() {
         guard let song = currentSong else { return }
 
-        let albumArtUrl = DownloadManager.shared.getAlbumArtUrl(for: song.albumId)
+        let albumArtUrl = downloadManager.getAlbumArtUrl(for: song.albumId)
         let localImageUrl = FileManager.default.fileExists(atPath: albumArtUrl.path) ? albumArtUrl : nil
         let currentArtworkUrl = localImageUrl?.absoluteString ?? song.imageUrl
         let artworkChanged = currentArtworkUrl != lastArtworkUrl
@@ -433,9 +442,10 @@ class AudioPlayerManager: NSObject, ObservableObject {
         if artworkChanged {
             let songId = song.id
             Task {
-                let image = await ImageCacheManager.shared.loadImage(
+                let image = await imageCache.loadImage(
                     localUrl: localImageUrl,
-                    remoteUrlString: song.imageUrl
+                    remoteUrlString: song.imageUrl,
+                    saveToUrl: nil
                 )
                 guard self.currentSong?.id == songId, let image else { return }
                 let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
@@ -546,7 +556,7 @@ extension AudioPlayerManager: AudioPlayer.Delegate {
                 self.updateNowPlayingInfo()
                 self.savePlaybackState()
                 self.enqueueNextSong()
-                DownloadManager.shared.addToRecentlyPlayed(albumId: song.albumId)
+                downloadManager.addToRecentlyPlayed(albumId: song.albumId)
             }
         }
     }

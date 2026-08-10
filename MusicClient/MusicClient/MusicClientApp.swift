@@ -3,15 +3,18 @@ import Intents
 
 @main
 struct MusicClient: App {
-    @StateObject private var jellyfinService = JellyfinService.shared
-    @StateObject private var audioPlayer = AudioPlayerManager.shared
-    @StateObject private var albumCoordinator = AlbumStateCoordinator.shared
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
+    @StateObject private var searchManager = SearchManager.shared
+    @StateObject private var imageCacheManager = ImageCacheManager.shared
+    @StateObject private var themeManager = ThemeManager.shared
+    @StateObject private var jellyfinService = JellyfinService.shared
+    @StateObject private var downloadManager = DownloadManager.shared
+    @StateObject private var audioPlayer = AudioPlayerManager.shared
+    @StateObject private var albumCoordinator = AlbumStateCoordinator.shared
+
     init() {
-        // Request Siri authorization, critical for intents to work
         requestSiriAuthorization()
-        // Donate a generic media playback intent to help iOS recognize the app
         donateMediaPlaybackIntent()
     }
 
@@ -19,8 +22,12 @@ struct MusicClient: App {
         WindowGroup {
             ContentView()
                 .environmentObject(jellyfinService)
+                .environmentObject(downloadManager)
                 .environmentObject(audioPlayer)
                 .environmentObject(albumCoordinator)
+                .environmentObject(themeManager)
+                .environmentObject(searchManager)
+                .environmentObject(imageCacheManager)
                 // =============================================================
                 // Handle manual Siri app selection via NSUserActivity handoff
                 // When user manually selects app from Siri's app list, iOS delivers

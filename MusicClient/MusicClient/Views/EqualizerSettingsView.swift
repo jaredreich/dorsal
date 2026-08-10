@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct EqualizerSettingsView: View {
-    @ObservedObject private var audioPlayer = AudioPlayerManager.shared
+    @EnvironmentObject var audioPlayer: AudioPlayerManager
 
     var body: some View {
         List {

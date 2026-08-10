@@ -3,7 +3,43 @@ import Combine
 import Intents
 
 @MainActor
-class DownloadManager: NSObject, ObservableObject {
+protocol DownloadManaging: ObservableObject {
+    var downloadProgress: [String: Double] { get set }
+    var downloadingSongIds: Set<String> { get set }
+    var downloadingAlbumIds: Set<String> { get set }
+    var pinnedAlbums: Set<String> { get set }
+    var recentlyPlayedAlbumIds: [String] { get set }
+    var activeDownloadCount: Int { get set }
+    var cachedContentVersion: Int { get set }
+    func saveAlbumMetadata(albumId: String, album: Album, songs: [Song], updateIndex: Bool)
+    func downloadAlbum(_ album: Album, songs: [Song])
+    func getAlbumArtUrl(for albumId: String) -> URL
+    func cancelDownload(songId: String)
+    func albumDownloadProgress(albumId: String) -> Double
+    func cancelAlbumDownload(albumId: String)
+    func deleteAlbum(albumId: String)
+    func isPinned(albumId: String) -> Bool
+    func cleanupStaleAlbums(serverAlbumIds: Set<String>)
+    func existingStorageUrl(for songId: String) -> URL?
+    func isCached(songId: String) -> Bool
+    func downloadAndCache(_ song: Song) async throws -> URL
+    func getCacheSizeInMB() -> Double
+    func clearCache()
+    func deleteSongFromCache(songId: String)
+    func getDownloadsSizeInMB() -> Double
+    func clearAllDownloads()
+    func getAlbumArtSizeInMB() -> Double
+    func clearAlbumArtCache()
+    func addToRecentlyPlayed(albumId: String)
+    func clearRecentlyPlayed()
+    func removeFromRecentlyPlayed(albumId: String)
+    func reorderRecentlyPlayed(newOrder: [String])
+    func loadSongsForAlbum(_ albumId: String, album: Album) async throws -> [Song]
+    func donateVocabularyToSiri(albums: [Album])
+}
+
+@MainActor
+class DownloadManager: NSObject, DownloadManaging {
     static let shared = DownloadManager()
 
     var downloadProgress: [String: Double] = [:]
@@ -76,7 +112,13 @@ class DownloadManager: NSObject, ObservableObject {
         }
     }
 
-    override private init() {
+    private let jellyfinService: any JellyfinServicing
+    private let searchManager: any SearchManaging
+
+    init(jellyfinService: (any JellyfinServicing)? = nil,
+         searchManager: (any SearchManaging)? = nil) {
+        self.jellyfinService = jellyfinService ?? JellyfinService.shared
+        self.searchManager = searchManager ?? SearchManager.shared
         super.init()
         loadPinnedItems()
         loadRecentlyPlayedAlbums()
@@ -135,7 +177,7 @@ class DownloadManager: NSObject, ObservableObject {
 
         // Update the in-memory albums index (skip during batch sync)
         if updateIndex {
-            SearchManager.shared.updateAlbumInIndex(album)
+            searchManager.updateAlbumInIndex(album)
         }
     }
 
@@ -160,7 +202,7 @@ class DownloadManager: NSObject, ObservableObject {
     @discardableResult
     private func downloadSong(_ song: Song, awaitCompletion: Bool = false) async throws -> URL {
         // Generate asset URL dynamically with current quality settings
-        guard let assetUrlString = JellyfinService.shared.getAssetUrl(for: song),
+        guard let assetUrlString = jellyfinService.getAssetUrl(for: song),
               let assetUrl = URL(string: assetUrlString) else {
             throw NSError(domain: "DownloadManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not generate assetUrl"])
         }
@@ -755,17 +797,17 @@ class DownloadManager: NSObject, ObservableObject {
 
         // Check if album is pinned and load from local storage
         if isPinned(albumId: albumId) {
-            songs = SearchManager.shared.getSongsForAlbum(albumId)
+            songs = searchManager.getSongsForAlbum(albumId)
         } else {
             // Try to fetch from server first to get complete song list
             do {
-                songs = try await JellyfinService.shared.fetchSongs(for: albumId)
+                songs = try await jellyfinService.fetchSongs(for: albumId)
 
                 // Save metadata so all songs become searchable
                 saveAlbumMetadata(albumId: albumId, album: album, songs: songs)
             } catch {
                 // If server fetch fails, fall back to metadata (all songs, not just cached)
-                let metadataSongs = SearchManager.shared.getSongsForAlbum(albumId)
+                let metadataSongs = searchManager.getSongsForAlbum(albumId)
 
                 if !metadataSongs.isEmpty {
                     songs = metadataSongs
@@ -876,8 +918,19 @@ extension DownloadManager: URLSessionDownloadDelegate {
 
 import UIKit
 
+protocol ImageCaching {
+    func getCachedImage(localUrl: URL?, remoteUrlString: String?) -> UIImage?
+    func loadLocalImageSync(from url: URL) -> UIImage?
+    func loadLocalImage(from url: URL) async -> UIImage?
+    func loadRemoteImage(from url: URL) async -> UIImage?
+    func loadImage(localUrl: URL?, remoteUrlString: String?, saveToUrl: URL?) async -> UIImage?
+    func preloadImage(from url: URL)
+    func clearCache()
+}
+
     // Unified image caching system for both local and remote images
-class ImageCacheManager {
+class ImageCacheManager: ImageCaching, ObservableObject {
+    let objectWillChange = ObservableObjectPublisher()
     static let shared = ImageCacheManager()
 
     // In-memory cache with automatic memory pressure handling
@@ -1080,11 +1133,17 @@ class AlbumStateCoordinator: ObservableObject {
     // Used by AlbumRowView to show the grey dot without disk I/O.
     @Published private(set) var albumsWithCachedSongs: Set<String> = []
 
-    private let jellyfinService = JellyfinService.shared
-    private let downloadManager = DownloadManager.shared
+    private let jellyfinService: JellyfinService
+    private let downloadManager: DownloadManager
+    private let searchManager: any SearchManaging
     private var cancellables = Set<AnyCancellable>()
 
-    private init() {
+    init(jellyfinService: JellyfinService? = nil,
+         downloadManager: DownloadManager? = nil,
+         searchManager: (any SearchManaging)? = nil) {
+        self.jellyfinService = jellyfinService ?? JellyfinService.shared
+        self.downloadManager = downloadManager ?? DownloadManager.shared
+        self.searchManager = searchManager ?? SearchManager.shared
         // Load persisted state
         let isIndexed = UserDefaults.standard.bool(forKey: "isSongsIndexed")
         songsIndexState = isIndexed ? .indexed : .notIndexed
@@ -1092,14 +1151,14 @@ class AlbumStateCoordinator: ObservableObject {
         lastSyncDate = UserDefaults.standard.object(forKey: "lastSyncDate") as? Date
 
         // Observe changes to source albums from JellyfinService
-        jellyfinService.$albums
+        self.jellyfinService.$albums
             .sink { [weak self] serverAlbums in
                 self?.updateAlbums(serverAlbums: serverAlbums)
             }
             .store(in: &cancellables)
 
         // Observe changes to pinned state (don't replace albums, just update offline set)
-        downloadManager.$pinnedAlbums
+        self.downloadManager.$pinnedAlbums
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.updateOfflineAlbums()
@@ -1107,7 +1166,7 @@ class AlbumStateCoordinator: ObservableObject {
             .store(in: &cancellables)
 
         // Recompute offline albums when cached content changes (downloads complete or cache cleared)
-        downloadManager.$cachedContentVersion
+        self.downloadManager.$cachedContentVersion
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.updateOfflineAlbums()
@@ -1131,7 +1190,7 @@ class AlbumStateCoordinator: ObservableObject {
                 offline.append(album)
                 continue
             }
-            let songs = SearchManager.shared.getSongsForAlbum(album.id)
+            let songs = searchManager.getSongsForAlbum(album.id)
             if songs.contains(where: { downloadManager.isCached(songId: $0.id) }) {
                 offline.append(album)
                 withCached.insert(album.id)
@@ -1144,7 +1203,7 @@ class AlbumStateCoordinator: ObservableObject {
 
     // Loads cached albums for offline support (loads all album metadata from disk)
     func loadCachedAlbums() {
-        let savedAlbums = SearchManager.shared.getAllAlbumsFromMetadata()
+        let savedAlbums = searchManager.getAllAlbumsFromMetadata()
 
         // Create dictionary for fast lookup
         var albumDict: [String: Album] = [:]
@@ -1236,7 +1295,7 @@ class AlbumStateCoordinator: ObservableObject {
             // because fetchAlbumsSince only returns changed items, not the full server list
             // Deletion of removed albums only happens during full sync
             mergeAlbums(allChangedAlbums)
-            SearchManager.shared.replaceAlbumsIndex(albums)
+            searchManager.replaceAlbumsIndex(albums)
 
             for (i, album) in allChangedAlbums.enumerated() {
                 let songs = try await jellyfinService.fetchSongs(for: album.id)
@@ -1245,7 +1304,7 @@ class AlbumStateCoordinator: ObservableObject {
             }
 
             let affectedAlbumIds = Set(allChangedAlbums.map { $0.id })
-            SearchManager.shared.updateSongsIndex(forAlbumIds: affectedAlbumIds)
+            searchManager.updateSongsIndex(forAlbumIds: affectedAlbumIds)
 
             let now = Date()
             lastSyncDate = now
@@ -1284,7 +1343,7 @@ class AlbumStateCoordinator: ObservableObject {
                 self?.albumSyncProgress = progress
             }
 
-            SearchManager.shared.replaceAlbumsIndex(jellyfinService.albums)
+            searchManager.replaceAlbumsIndex(jellyfinService.albums)
 
             let serverAlbumIds = Set(jellyfinService.albums.map { $0.id })
             downloadManager.cleanupStaleAlbums(serverAlbumIds: serverAlbumIds)
@@ -1324,7 +1383,7 @@ class AlbumStateCoordinator: ObservableObject {
             let indexEntries = allSongs.map {
                 SongSearchEntry(id: $0.id, name: $0.name, artistName: $0.artistName, albumName: $0.albumName, albumId: $0.albumId, duration: $0.duration)
             }
-            SearchManager.shared.replaceSongsIndex(indexEntries)
+            searchManager.replaceSongsIndex(indexEntries)
 
             downloadManager.donateVocabularyToSiri(albums: albums)
 

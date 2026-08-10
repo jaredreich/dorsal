@@ -1,7 +1,21 @@
 import Foundation
 import Security
 
-class KeychainManager {
+protocol KeychainManaging {
+    func saveServerUrl(_ url: String) -> Bool
+    func saveAccessToken(_ token: String) -> Bool
+    func saveUserId(_ userId: String) -> Bool
+    func saveUsername(_ username: String) -> Bool
+    func saveAuthState(_ authState: AuthState) -> Bool
+    func getServerUrl() -> String?
+    func getAccessToken() -> String?
+    func getUserId() -> String?
+    func getUsername() -> String?
+    func getAuthState() -> AuthState
+    func deleteAll() -> Bool
+}
+
+class KeychainManager: KeychainManaging {
     static let shared = KeychainManager()
 
     private let serviceName = "com.jaredreich.music"

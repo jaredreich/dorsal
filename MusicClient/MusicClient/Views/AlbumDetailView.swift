@@ -4,8 +4,9 @@ import Network
 struct AlbumDetailView: View {
     @EnvironmentObject var jellyfinService: JellyfinService
     @EnvironmentObject var audioPlayer: AudioPlayerManager
-    @ObservedObject private var downloadManager = DownloadManager.shared
-    @ObservedObject private var themeManager = ThemeManager.shared
+    @EnvironmentObject var downloadManager: DownloadManager
+    @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var searchManager: SearchManager
     let album: Album
 
     @State private var songs: [Song] = []
@@ -28,7 +29,7 @@ struct AlbumDetailView: View {
     private var cachedSizeMB: Double {
         let totalBytes = songs.reduce(0) { total, song in
             guard downloadManager.isCached(songId: song.id),
-                  let url = DownloadManager.shared.existingStorageUrl(for: song.id) else { return total }
+                  let url = downloadManager.existingStorageUrl(for: song.id) else { return total }
             let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             return total + fileSize
         }
@@ -249,7 +250,7 @@ struct AlbumDetailView: View {
     }
 
     private func loadSongs() {
-        let metadataSongs = SearchManager.shared.getSongsForAlbum(album.id).sortedByTrack()
+        let metadataSongs = searchManager.getSongsForAlbum(album.id).sortedByTrack()
         if !metadataSongs.isEmpty {
             songs = metadataSongs
         }
@@ -369,7 +370,7 @@ struct SongRowView: View {
 
 struct SongInfoContextMenu: View {
     let song: Song
-    @ObservedObject private var downloadManager = DownloadManager.shared
+    @EnvironmentObject var downloadManager: DownloadManager
 
     private var fileInfo: (format: String, size: String, bitrate: String)? {
         _ = downloadManager.cachedContentVersion

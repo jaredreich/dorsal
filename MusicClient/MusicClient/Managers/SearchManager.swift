@@ -1,5 +1,6 @@
 import Foundation
 import Intents
+import Combine
 
 struct SongSearchEntry: Codable {
     let id: String
@@ -10,7 +11,24 @@ struct SongSearchEntry: Codable {
     let duration: Double?
 }
 
-class SearchManager {
+protocol SearchManaging {
+    func updateAlbumInIndex(_ album: Album)
+    func replaceAlbumsIndex(_ albums: [Album])
+    func getAllAlbumsFromMetadata() -> [Album]
+    func replaceSongsIndex(_ entries: [SongSearchEntry])
+    func getAlbumIdsMatchingSongs(query: String, excluding: Set<String>) -> Set<String>
+    func updateSongsIndex(forAlbumIds albumIds: Set<String>)
+    func getAllSongsIndex() -> [SongSearchEntry]
+    func getAllSongsFromAlbums(_ albums: [Album]) -> [Song]
+    func getSongsForAlbum(_ albumId: String) -> [Song]
+    func searchAlbumsByName(albums: [Album], _ query: String) -> [Album]
+    func searchAlbumsByArtist(albums: [Album], query: String) -> [Album]
+    func searchSongsByTitle(albums: [Album], query: String) -> [Song]
+    func resolveMediaItems(from mediaSearch: INMediaSearch) -> [INPlayMediaMediaItemResolutionResult]
+}
+
+class SearchManager: SearchManaging, ObservableObject {
+    let objectWillChange = ObservableObjectPublisher()
     static let shared = SearchManager()
 
     private let fileManager = FileManager.default
@@ -202,8 +220,8 @@ class SearchManager {
             otherSearchValue = mediaName
         }
 
-        var albums = SearchManager.shared.getAllAlbumsFromMetadata()
-        var songs = SearchManager.shared.getAllSongsFromAlbums(albums)
+        var albums = self.getAllAlbumsFromMetadata()
+        var songs = self.getAllSongsFromAlbums(albums)
 
         if (!artistSearchValue.isEmpty) {
             songs = songs.filter { song in
@@ -263,9 +281,9 @@ class SearchManager {
             // Artists can have self-titled albums and we shall prefer playing the artist over the song (choosing random album from artist to play)
             // Albums can have self-titled songs and we shall prefer playing the album over the song
 
-            let songsMatch = SearchManager.shared.searchSongsByTitle(albums: albums, query: otherSearchValue)
-            let albumsMatch = SearchManager.shared.searchAlbumsByName(albums: albums, otherSearchValue)
-            let albumsMatchByArtist = SearchManager.shared.searchAlbumsByArtist(albums: albums, query: otherSearchValue)
+            let songsMatch = self.searchSongsByTitle(albums: albums, query: otherSearchValue)
+            let albumsMatch = self.searchAlbumsByName(albums: albums, otherSearchValue)
+            let albumsMatchByArtist = self.searchAlbumsByArtist(albums: albums, query: otherSearchValue)
 
             if (!albumsMatchByArtist.isEmpty) {
                 // Artist found and prioritized accordingly

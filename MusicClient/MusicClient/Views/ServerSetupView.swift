@@ -145,7 +145,7 @@ struct ServerSetupView: View {
                 )
 
                 Task {
-                    try? await AlbumStateCoordinator.shared.sync()
+                    try? await albumCoordinator.sync()
                 }
 
                 await MainActor.run {

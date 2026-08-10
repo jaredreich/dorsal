@@ -2,7 +2,8 @@ import SwiftUI
 
 struct StorageSettingsView: View {
     @EnvironmentObject var jellyfinService: JellyfinService
-    @ObservedObject private var downloadManager = DownloadManager.shared
+    @EnvironmentObject var downloadManager: DownloadManager
+    @EnvironmentObject var imageCache: ImageCacheManager
     @AppStorage("prefetchNextSong") private var prefetchNextSong: Bool = true
     @State private var showClearCacheAlert = false
     @State private var showClearDownloadsAlert = false
@@ -87,7 +88,7 @@ struct StorageSettingsView: View {
                 }
 
                 Button(action: {
-                    DownloadManager.shared.clearRecentlyPlayed()
+                    downloadManager.clearRecentlyPlayed()
                     recentlyPlayedCount = 0
                 }) {
                     Text("settings.storage.clear_recently_played")
@@ -100,7 +101,7 @@ struct StorageSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             updateSizes()
-            recentlyPlayedCount = DownloadManager.shared.recentlyPlayedAlbumIds.count
+            recentlyPlayedCount = downloadManager.recentlyPlayedAlbumIds.count
         }
         .alert("settings.storage.clear_downloads", isPresented: $showClearDownloadsAlert) {
             Button("common.cancel", role: .cancel) {}
@@ -124,7 +125,7 @@ struct StorageSettingsView: View {
             Button("common.cancel", role: .cancel) {}
             Button("common.clear", role: .destructive) {
                 downloadManager.clearAlbumArtCache()
-                ImageCacheManager.shared.clearCache()
+                imageCache.clearCache()
                 updateSizes()
             }
         } message: {
@@ -134,9 +135,9 @@ struct StorageSettingsView: View {
 
     private func updateSizes() {
         Task.detached(priority: .userInitiated) {
-            let cache = await DownloadManager.shared.getCacheSizeInMB()
-            let downloads = await DownloadManager.shared.getDownloadsSizeInMB()
-            let albumArt = await DownloadManager.shared.getAlbumArtSizeInMB()
+            let cache = await downloadManager.getCacheSizeInMB()
+            let downloads = await downloadManager.getDownloadsSizeInMB()
+            let albumArt = await downloadManager.getAlbumArtSizeInMB()
             await MainActor.run {
                 self.cacheSize = cache
                 self.downloadsSize = downloads

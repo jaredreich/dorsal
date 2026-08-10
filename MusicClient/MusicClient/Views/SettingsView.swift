@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var jellyfinService: JellyfinService
     @EnvironmentObject var albumCoordinator: AlbumStateCoordinator
+    @EnvironmentObject var searchManager: SearchManager
     @State private var showLogoutAlert = false
     @State private var showFullSyncAlert = false
     @State private var albumCount = 0
@@ -194,8 +195,8 @@ struct SettingsView: View {
     }
 
     private func loadLibraryStats() {
-        let albums = SearchManager.shared.getAllAlbumsFromMetadata()
-        let songEntries = SearchManager.shared.getAllSongsIndex()
+        let albums = searchManager.getAllAlbumsFromMetadata()
+        let songEntries = searchManager.getAllSongsIndex()
         albumCount = albums.count
         songCount = songEntries.count
         totalHours = songEntries.compactMap(\.duration).reduce(0, +) / 3600.0

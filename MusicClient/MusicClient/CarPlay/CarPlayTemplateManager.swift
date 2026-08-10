@@ -7,11 +7,11 @@ import Combine
 @MainActor
 class CarPlayTemplateManager: NSObject {
     private var interfaceController: CPInterfaceController?
-    private let jellyfinService = JellyfinService.shared
-    private let albumCoordinator = AlbumStateCoordinator.shared
-    private let audioPlayer = AudioPlayerManager.shared
-    private let imageCache = ImageCacheManager.shared
-    private let downloadManager = DownloadManager.shared
+    private let jellyfinService: JellyfinService
+    private let albumCoordinator: AlbumStateCoordinator
+    private let audioPlayer: AudioPlayerManager
+    private let imageCache: any ImageCaching
+    private let downloadManager: any DownloadManaging
     private var nowPlayingObserver: NSObjectProtocol?
     private var playbackObserver: NSObjectProtocol?
     private var authStateObserver: AnyCancellable?
@@ -22,6 +22,19 @@ class CarPlayTemplateManager: NSObject {
     private var albumItems: [String: [CPListItem]] = [:]
     private var currentSongObserver: AnyCancellable?
     private var tabBarTemplate: CPTabBarTemplate?
+
+    init(jellyfinService: JellyfinService? = nil,
+         albumCoordinator: AlbumStateCoordinator? = nil,
+         audioPlayer: AudioPlayerManager? = nil,
+         imageCache: (any ImageCaching)? = nil,
+         downloadManager: (any DownloadManaging)? = nil) {
+        self.jellyfinService = jellyfinService ?? JellyfinService.shared
+        self.albumCoordinator = albumCoordinator ?? AlbumStateCoordinator.shared
+        self.audioPlayer = audioPlayer ?? AudioPlayerManager.shared
+        self.imageCache = imageCache ?? ImageCacheManager.shared
+        self.downloadManager = downloadManager ?? DownloadManager.shared
+        super.init()
+    }
 
     func connect(_ interfaceController: CPInterfaceController) {
         self.interfaceController = interfaceController
@@ -253,7 +266,8 @@ class CarPlayTemplateManager: NSObject {
             Task {
                 let image = await imageCache.loadImage(
                     localUrl: localUrlIfExists,
-                    remoteUrlString: album.imageUrl
+                    remoteUrlString: album.imageUrl,
+                    saveToUrl: nil
                 )
 
                 await MainActor.run {
@@ -323,7 +337,8 @@ class CarPlayTemplateManager: NSObject {
             Task {
                 let image = await imageCache.loadImage(
                     localUrl: localUrlIfExists,
-                    remoteUrlString: album.imageUrl
+                    remoteUrlString: album.imageUrl,
+                    saveToUrl: nil
                 )
 
                 await MainActor.run {

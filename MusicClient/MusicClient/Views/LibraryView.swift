@@ -3,7 +3,9 @@ import SwiftUI
 struct LibraryView: View {
     @EnvironmentObject var albumCoordinator: AlbumStateCoordinator
     @EnvironmentObject var audioPlayer: AudioPlayerManager
-    @ObservedObject private var themeManager = ThemeManager.shared
+    @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var downloadManager: DownloadManager
+    @EnvironmentObject var searchManager: SearchManager
     @State private var isLoading = false
     @State private var showSettings = false
     @AppStorage("selectedFilter") private var selectedFilter: FilterOption = .library
@@ -198,7 +200,6 @@ struct LibraryView: View {
             .sheet(isPresented: $showSettings) {
                 SettingsView()
                     .environmentObject(albumCoordinator)
-                    .environmentObject(JellyfinService.shared)
             }
         }
         .onAppear {
@@ -218,19 +219,19 @@ struct LibraryView: View {
             albumIdsWithMatchingSongs = []
             return
         }
-        let allAlbums = SearchManager.shared.getAllAlbumsFromMetadata()
+        let allAlbums = searchManager.getAllAlbumsFromMetadata()
         let albumMatched = Set(allAlbums.filter { fuzzyMatch($0.name, query) || fuzzyMatch($0.artistName, query) }.map { $0.id })
-        albumIdsWithMatchingSongs = SearchManager.shared.getAlbumIdsMatchingSongs(query: query, excluding: albumMatched)
+        albumIdsWithMatchingSongs = searchManager.getAlbumIdsMatchingSongs(query: query, excluding: albumMatched)
     }
 
     private func removeFromRecentlyPlayed(_ album: Album) {
-        DownloadManager.shared.removeFromRecentlyPlayed(albumId: album.id)
+        downloadManager.removeFromRecentlyPlayed(albumId: album.id)
     }
 
     private func moveRecentlyPlayedAlbum(from source: IndexSet, to destination: Int) {
         var albumIds = filteredAlbums.map { $0.id }
         albumIds.move(fromOffsets: source, toOffset: destination)
-        DownloadManager.shared.reorderRecentlyPlayed(newOrder: albumIds)
+        downloadManager.reorderRecentlyPlayed(newOrder: albumIds)
     }
 
     private func fuzzyMatch(_ string: String, _ query: String) -> Bool {
@@ -241,8 +242,8 @@ struct LibraryView: View {
 struct AlbumRowView: View {
     let album: Album
     let hasCachedSongs: Bool
-    @ObservedObject private var downloadManager = DownloadManager.shared
-    @ObservedObject private var themeManager = ThemeManager.shared
+    @EnvironmentObject var downloadManager: DownloadManager
+    @EnvironmentObject var themeManager: ThemeManager
 
     var body: some View {
         HStack(spacing: 12) {
