@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ServerSetupView: View {
     @EnvironmentObject var jellyfinService: JellyfinService
-    @EnvironmentObject var albumCoordinator: AlbumStateCoordinator
+    @EnvironmentObject var albumStateManager: AlbumStateManager
     @State private var serverUrl: String = ""
     @State private var username: String = ""
     @State private var password: String = ""
@@ -145,7 +145,7 @@ struct ServerSetupView: View {
                 )
 
                 Task {
-                    try? await albumCoordinator.sync()
+                    try? await albumStateManager.sync()
                 }
 
                 await MainActor.run {

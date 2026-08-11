@@ -8,7 +8,7 @@ import Combine
 class CarPlayTemplateManager: NSObject {
     private var interfaceController: CPInterfaceController?
     private let jellyfinService: JellyfinService
-    private let albumCoordinator: AlbumStateCoordinator
+    private let albumStateManager: AlbumStateManager
     private let audioPlayer: AudioPlayerManager
     private let imageCache: any ImageCaching
     private let downloadManager: any DownloadManaging
@@ -24,12 +24,12 @@ class CarPlayTemplateManager: NSObject {
     private var tabBarTemplate: CPTabBarTemplate?
 
     init(jellyfinService: JellyfinService? = nil,
-         albumCoordinator: AlbumStateCoordinator? = nil,
+         albumStateManager: AlbumStateManager? = nil,
          audioPlayer: AudioPlayerManager? = nil,
          imageCache: (any ImageCaching)? = nil,
          downloadManager: (any DownloadManaging)? = nil) {
         self.jellyfinService = jellyfinService ?? JellyfinService.shared
-        self.albumCoordinator = albumCoordinator ?? AlbumStateCoordinator.shared
+        self.albumStateManager = albumStateManager ?? AlbumStateManager.shared
         self.audioPlayer = audioPlayer ?? AudioPlayerManager.shared
         self.imageCache = imageCache ?? ImageCacheManager.shared
         self.downloadManager = downloadManager ?? DownloadManager.shared
@@ -106,7 +106,7 @@ class CarPlayTemplateManager: NSObject {
         }
 
         // Only load cached albums without fetching from server
-        albumCoordinator.loadCachedAlbums()
+        albumStateManager.loadCachedAlbums()
         createRootTemplate()
     }
 
@@ -169,7 +169,7 @@ class CarPlayTemplateManager: NSObject {
     }
 
     private func createLibraryTemplate(filter: FilterOption) -> CPListTemplate {
-        let albums = albumCoordinator.getFilteredAlbums(
+        let albums = albumStateManager.getFilteredAlbums(
             filter: filter.rawValue
         )
 
@@ -580,7 +580,7 @@ extension CarPlayTemplateManager: CPNowPlayingTemplateObserver {
     nonisolated func nowPlayingTemplateUpNextButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
         Task { @MainActor in
             guard let albumId = self.audioPlayer.currentSong?.albumId,
-                  let album = self.albumCoordinator.albums.first(where: { $0.id == albumId }) else { return }
+                  let album = self.albumStateManager.albums.first(where: { $0.id == albumId }) else { return }
             self.handleAlbumSelection(album)
         }
     }

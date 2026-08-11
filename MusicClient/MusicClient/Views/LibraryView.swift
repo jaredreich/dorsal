@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct LibraryView: View {
-    @EnvironmentObject var albumCoordinator: AlbumStateCoordinator
+    @EnvironmentObject var albumStateManager: AlbumStateManager
     @EnvironmentObject var audioPlayer: AudioPlayerManager
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var downloadManager: DownloadManager
@@ -14,7 +14,7 @@ struct LibraryView: View {
     @State private var randomAlbum: Album?
 
     private var filteredAlbums: [Album] {
-        let filtered = albumCoordinator.getFilteredAlbums(
+        let filtered = albumStateManager.getFilteredAlbums(
             filter: selectedFilter.rawValue
         )
 
@@ -84,7 +84,7 @@ struct LibraryView: View {
                                 NavigationLink(destination: AlbumDetailView(album: album)) {
                                     AlbumRowView(
                                         album: album,
-                                        hasCachedSongs: albumCoordinator.albumsWithCachedSongs.contains(album.id)
+                                        hasCachedSongs: albumStateManager.albumsWithCachedSongs.contains(album.id)
                                     )
                                 }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -145,7 +145,7 @@ struct LibraryView: View {
                                 NavigationLink(destination: AlbumDetailView(album: album)) {
                                     AlbumRowView(
                                         album: album,
-                                        hasCachedSongs: albumCoordinator.albumsWithCachedSongs.contains(album.id)
+                                        hasCachedSongs: albumStateManager.albumsWithCachedSongs.contains(album.id)
                                     )
                                 }
                             }
@@ -162,7 +162,7 @@ struct LibraryView: View {
             .navigationTitle(selectedFilter.localizedName)
             .navigationBarTitleDisplayMode(.inline)
             .conditionallySearchable(
-                isEnabled: albumCoordinator.songsIndexState == .indexed,
+                isEnabled: albumStateManager.songsIndexState == .indexed,
                 text: $searchText,
                 prompt: Text("library.search_prompt")
             )
@@ -199,17 +199,17 @@ struct LibraryView: View {
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView()
-                    .environmentObject(albumCoordinator)
+                    .environmentObject(albumStateManager)
             }
         }
         .onAppear {
-            albumCoordinator.loadCachedAlbums()
+            albumStateManager.loadCachedAlbums()
             audioPlayer.restorePersistedState()
         }
         .onChange(of: searchText) { newValue in
             updateSongSearchIndex(query: newValue)
         }
-        .onChange(of: albumCoordinator.songsIndexState == .indexed) { isIndexed in
+        .onChange(of: albumStateManager.songsIndexState == .indexed) { isIndexed in
             if !isIndexed { searchText = "" }
         }
     }

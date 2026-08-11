@@ -11,7 +11,7 @@ struct MusicClient: App {
     @StateObject private var jellyfinService = JellyfinService.shared
     @StateObject private var downloadManager = DownloadManager.shared
     @StateObject private var audioPlayer = AudioPlayerManager.shared
-    @StateObject private var albumCoordinator = AlbumStateCoordinator.shared
+    @StateObject private var albumStateManager = AlbumStateManager.shared
 
     init() {
         requestSiriAuthorization()
@@ -24,7 +24,7 @@ struct MusicClient: App {
                 .environmentObject(jellyfinService)
                 .environmentObject(downloadManager)
                 .environmentObject(audioPlayer)
-                .environmentObject(albumCoordinator)
+                .environmentObject(albumStateManager)
                 .environmentObject(themeManager)
                 .environmentObject(searchManager)
                 .environmentObject(imageCacheManager)

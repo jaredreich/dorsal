@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		33F62B37DD744F39B25B2481 /* AlbumArtView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112E85E72BDF4451BDCF9B9C /* AlbumArtView.swift */; };
 		5CDB8D4C1E1F40969EAFAB94 /* StorageSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F8D37A7A0D400DA632CC13 /* StorageSettingsView.swift */; };
+		7F31DEC7302AE74D00AB3248 /* AlbumStateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F31DEC6302AE74D00AB3248 /* AlbumStateManager.swift */; };
+		7F31DEC9302AE75600AB3248 /* ImageCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F31DEC8302AE75600AB3248 /* ImageCacheManager.swift */; };
 		7FCF48BC2F8C4A9E00554717 /* Config.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = 7FCF48BB2F8C4A9D00554717 /* Config.xcconfig */; };
 		7FCF48BD2F8C4A9E00554717 /* Config.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = 7FCF48BB2F8C4A9D00554717 /* Config.xcconfig */; };
 		AA0001000000000000000001 /* MusicClientApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002000000000000000001 /* MusicClientApp.swift */; };
@@ -76,6 +78,8 @@
 
 /* Begin PBXFileReference section */
 		112E85E72BDF4451BDCF9B9C /* AlbumArtView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumArtView.swift; sourceTree = "<group>"; };
+		7F31DEC6302AE74D00AB3248 /* AlbumStateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumStateManager.swift; sourceTree = "<group>"; };
+		7F31DEC8302AE75600AB3248 /* ImageCacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCacheManager.swift; sourceTree = "<group>"; };
 		7FCF48BB2F8C4A9D00554717 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 		AA0002000000000000000001 /* MusicClientApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicClientApp.swift; sourceTree = "<group>"; };
 		AA0002000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -211,9 +215,11 @@
 		AA0005000000000000000006 /* Managers */ = {
 			isa = PBXGroup;
 			children = (
-				AA0002000000000000000007 /* KeychainManager.swift */,
+				7F31DEC6302AE74D00AB3248 /* AlbumStateManager.swift */,
 				AA0002000000000000000008 /* AudioPlayerManager.swift */,
 				FE2C18FD2F46D71E006EBD83 /* DownloadManager.swift */,
+				7F31DEC8302AE75600AB3248 /* ImageCacheManager.swift */,
+				AA0002000000000000000007 /* KeychainManager.swift */,
 				FEF4119C2F520B4800B8ECE6 /* SearchManager.swift */,
 			);
 			path = Managers;
@@ -397,6 +403,7 @@
 				FEFF621D2F8C6953004A3E8C /* CreditsView.swift in Sources */,
 				FEF411992F520B4800B8ECE6 /* AppDelegate.swift in Sources */,
 				FE9828DA2F516F82007EA1BC /* AlbumMetadata.swift in Sources */,
+				7F31DEC9302AE75600AB3248 /* ImageCacheManager.swift in Sources */,
 				FEFF61F82F8817D2004A3E8C /* EqualizerPreset.swift in Sources */,
 				AA0001000000000000000001 /* MusicClientApp.swift in Sources */,
 				AA0001000000000000000002 /* ContentView.swift in Sources */,
@@ -412,6 +419,7 @@
 				AA0001000000000000000014 /* LibraryView.swift in Sources */,
 				FEF411942F51F1D500B8ECE6 /* FilterOption.swift in Sources */,
 				AA0001000000000000000015 /* AlbumDetailView.swift in Sources */,
+				7F31DEC7302AE74D00AB3248 /* AlbumStateManager.swift in Sources */,
 				AA0001000000000000000016 /* MiniPlayerView.swift in Sources */,
 				AA0001000000000000000017 /* NowPlayingView.swift in Sources */,
 				AA0001000000000000000020 /* SettingsView.swift in Sources */,
