@@ -1,10 +1,40 @@
 import SwiftUI
+import UIKit
+
+private class _SafeAreaInsetsView: UIView {
+    var onChange: ((CGFloat) -> Void)?
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        onChange?(window?.safeAreaInsets.bottom ?? 0)
+    }
+}
+
+private struct SafeAreaInsetsReader: UIViewRepresentable {
+    @Binding var bottomInset: CGFloat
+
+    func makeUIView(context: Context) -> _SafeAreaInsetsView {
+        let view = _SafeAreaInsetsView()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+        view.onChange = { inset in
+            bottomInset = inset
+        }
+        DispatchQueue.main.async {
+            view.onChange?(view.window?.safeAreaInsets.bottom ?? 0)
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: _SafeAreaInsetsView, context: Context) {}
+}
 
 struct MiniPlayerView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerManager
     @Binding var showNowPlaying: Bool
     @State private var dragLocation: CGPoint = .zero
     @State private var isPressed = false
+    @State private var bottomSafeArea: CGFloat = 0
 
     var body: some View {
         GeometryReader { geometry in
@@ -123,9 +153,10 @@ struct MiniPlayerView: View {
         }
         .frame(height: 60)
         .padding(.top, 10)
-        // NOTE: device-specific logic
-        .padding(.bottom, UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?.windows.first?.safeAreaInsets.bottom == 0 ? 20 : 0)
+        .padding(.bottom, bottomSafeArea == 0 ? 20 : 0)
+        .background(
+            SafeAreaInsetsReader(bottomInset: $bottomSafeArea)
+                .ignoresSafeArea()
+        )
     }
 }
