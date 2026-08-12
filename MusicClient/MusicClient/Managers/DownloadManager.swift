@@ -50,6 +50,11 @@ class DownloadManager: NSObject, DownloadManaging {
     @Published var activeDownloadCount: Int = 0
     @Published var cachedContentVersion: Int = 0
 
+    // Completion handler for background URLSession sessions.
+    // Stored when the app is relaunched to handle background session events,
+    // and called when all events for the background session are delivered.
+    var backgroundSessionCompletionHandler: (() -> Void)?
+
     // Song IDs that finished downloading in the current session
     private var completedSongs: Set<String> = []
     // Song IDs with files on disk
@@ -123,6 +128,13 @@ class DownloadManager: NSObject, DownloadManaging {
         loadPinnedItems()
         loadRecentlyPlayedAlbums()
         buildCachedSongIndex()
+    }
+
+    /// Triggers lazy creation of the background URLSession so the system can
+    /// deliver delegate callbacks after the app is relaunched for background
+    /// session events.
+    func resumeBackgroundSession() {
+        _ = urlSession
     }
 
     // Scans the songs directory on startup to build an in-memory set
@@ -912,6 +924,13 @@ extension DownloadManager: URLSessionDownloadDelegate {
             if let continuation = self.downloadContinuations.removeValue(forKey: songId) {
                 continuation.resume(throwing: error)
             }
+        }
+    }
+
+    nonisolated func urlSession(_ session: URLSession, didFinishEventsForBackgroundURLSession backgroundSession: URLSession) {
+        Task { @MainActor in
+            self.backgroundSessionCompletionHandler?()
+            self.backgroundSessionCompletionHandler = nil
         }
     }
 }

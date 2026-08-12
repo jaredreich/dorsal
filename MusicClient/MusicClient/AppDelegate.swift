@@ -54,6 +54,15 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             return sceneConfig
         }
     }
+
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        DownloadManager.shared.backgroundSessionCompletionHandler = completionHandler
+        DownloadManager.shared.resumeBackgroundSession()
+    }
 }
 
 class MainAppPlayMediaHandler: NSObject, INPlayMediaIntentHandling {
