@@ -105,8 +105,14 @@ extension Color {
     }
 }
 
-let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0"
-let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+struct BuildInfo {
+    static var version: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0"
+    }
+    static var build: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+    }
+}
 
 struct LayoutConstants {
     static let miniPlayerBottomPadding: CGFloat = 70

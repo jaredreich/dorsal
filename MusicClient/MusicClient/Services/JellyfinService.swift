@@ -91,7 +91,7 @@ class JellyfinService: JellyfinServicing {
 
     private func getAuthorizationHeader(includeToken: Bool = false) -> String {
         let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
-        var header = "MediaBrowser Client=\"MusicClient\", Device=\"iOS\", DeviceId=\"\(deviceId)\", Version=\"\(appVersion)\""
+        var header = "MediaBrowser Client=\"MusicClient\", Device=\"iOS\", DeviceId=\"\(deviceId)\", Version=\"\(BuildInfo.version)\""
 
         if includeToken, let token = authState.accessToken {
             header += ", Token=\"\(token)\""

@@ -142,13 +142,13 @@ struct SettingsView: View {
                     HStack {
                         Text("settings.about.version")
                         Spacer()
-                        Text(appVersion)
+                        Text(BuildInfo.version)
                             .foregroundColor(.secondary)
                     }
                     HStack {
                         Text("settings.about.build")
                         Spacer()
-                        Text(appBuild)
+                        Text(BuildInfo.build)
                             .foregroundColor(.secondary)
                     }
                     NavigationLink(destination: CreditsView()) {
