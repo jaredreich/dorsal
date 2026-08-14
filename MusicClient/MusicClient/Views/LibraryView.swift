@@ -154,7 +154,7 @@ struct LibraryView: View {
                     .listStyle(.plain)
                     .safeAreaInset(edge: .bottom) {
                         if audioPlayer.currentSong != nil {
-                            Color.clear.frame(height: LayoutConstants.miniPlayerBottomPadding)
+                            Color.clear.frame(height: Layout.miniPlayerBottomPadding)
                         }
                     }
                 }

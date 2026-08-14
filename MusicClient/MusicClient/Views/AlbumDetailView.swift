@@ -165,7 +165,7 @@ struct AlbumDetailView: View {
                 }
 
                 if audioPlayer.currentSong != nil {
-                    Spacer(minLength: LayoutConstants.miniPlayerBottomPadding)
+                    Spacer(minLength: Layout.miniPlayerBottomPadding)
                 }
             }
         }
