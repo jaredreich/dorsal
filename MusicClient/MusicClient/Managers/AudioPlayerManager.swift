@@ -215,7 +215,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
         let isCached = downloadManager.isCached(songId: song.id)
 
         if isCached {
-            // Song is ready — stop current playback immediately
+            // Song is ready, stop current playback immediately
             audioPlayer.stop()
             audioPlayer.clearQueue()
             nextEnqueuedSongId = nil
@@ -225,7 +225,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
             currentTime = 0
             duration = 0
         } else {
-            // Song needs to download — keep current playback going, just show loading
+            // Song needs to download, keep current playback going, just show loading
             isLoading = true
             hasTriggeredPrefetch = false
         }
@@ -314,9 +314,40 @@ class AudioPlayerManager: NSObject, ObservableObject {
     }
 
     func resume() {
+        try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
         audioPlayer.resume()
         isPlaying = true
         updateNowPlayingInfo()
+    }
+
+    func verifyAndRestorePlaybackState() {
+        guard isPlaying, let song = currentSong else { return }
+
+        let isEngineRunning = audioPlayer.time != nil && audioPlayer.time?.current != nil
+
+        if !isEngineRunning {
+            let savedCurrentTime = currentTime
+            let savedDuration = duration
+            let index = playbackQueue.currentIndex
+            let queue = playbackQueue.queue
+
+            guard !queue.isEmpty, index < queue.count else {
+                isPlaying = false
+                return
+            }
+
+            play(song: queue[index], autoPlay: true)
+
+            if savedCurrentTime > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    self.seek(to: savedCurrentTime)
+                }
+            }
+
+            if savedDuration > 0 && self.duration == 0 {
+                self.duration = savedDuration
+            }
+        }
     }
 
     func seek(to time: TimeInterval, completion: (() -> Void)? = nil) {
@@ -502,10 +533,30 @@ class AudioPlayerManager: NSObject, ObservableObject {
             name: UIApplication.didEnterBackgroundNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMediaServicesReset),
+            name: AVAudioSession.mediaServicesWereResetNotification,
+            object: nil
+        )
     }
 
     @objc private func handleAppBackground() {
         savePlaybackState()
+    }
+
+    @objc private func handleMediaServicesReset() {
+        // The media audio server was reset, this happens when switching audio
+        // output routes (e.g., CarPlay disconnect/reconnect). The AVAudioEngine
+        // and AVAudioSession have been invalidated. We need to rebuild the
+        // audio session and restore playback state.
+        setupAudioSession()
+        if isPlaying, currentSong != nil {
+            // The engine was playing, verify it's still running, restart if needed
+            Task { @MainActor in
+                self.verifyAndRestorePlaybackState()
+            }
+        }
     }
 
     @objc private func handleInterruption(notification: Notification) {

@@ -44,12 +44,27 @@ class CarPlayTemplateManager: NSObject {
         setupRootTemplate()
         observeAuthStateChanges()
 
-        if audioPlayer.currentSong != nil, !audioPlayer.isPlaying {
-            shouldNavigateToNowPlayingOnStart = true
-            audioPlayer.resume()
-        } else if audioPlayer.currentSong == nil {
+        // Reactivate audio session, it may have been deactivated when the
+        // car was turned off or the app entered the background
+        do {
+            try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("Failed to activate audio session on CarPlay connect: \(error)")
+        }
+
+        if audioPlayer.currentSong == nil {
+            // No song in memory, restore from persisted state
             shouldNavigateToNowPlayingOnStart = true
             audioPlayer.restorePersistedState(resumeAfterLoad: true)
+        } else if !audioPlayer.isPlaying {
+            // Song exists but isn't playing, resume
+            shouldNavigateToNowPlayingOnStart = true
+            audioPlayer.resume()
+        } else {
+            // Song exists and isPlaying == true, but the audio engine may be
+            // stopped after an audio session interruption
+            shouldNavigateToNowPlayingOnStart = true
+            audioPlayer.verifyAndRestorePlaybackState()
         }
     }
 

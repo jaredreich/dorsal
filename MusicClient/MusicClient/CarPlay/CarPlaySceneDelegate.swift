@@ -13,12 +13,20 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
             self.templateManager?.connect(interfaceController)
         }
     }
-}
 
-extension CarPlaySceneDelegate {
     func templateApplicationScene(
         _ templateApplicationScene: CPTemplateApplicationScene,
         didDisconnect interfaceController: CPInterfaceController
+    ) {
+        Task { @MainActor in
+            self.templateManager?.disconnect()
+            self.templateManager = nil
+        }
+    }
+
+    func templateApplicationScene(
+        _ templateApplicationScene: CPTemplateApplicationScene,
+        didInvalidate interfaceController: CPInterfaceController
     ) {
         Task { @MainActor in
             self.templateManager?.disconnect()
