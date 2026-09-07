@@ -50,6 +50,7 @@ struct SettingsView: View {
                     Button(action: quickSync) {
                         HStack {
                             Text("settings.sync.quick_sync")
+                                .foregroundColor(.appAccent)
                             Spacer()
                             if albumStateManager.isSyncing {
                                 CircularDownloadProgress(progress: albumStateManager.albumSyncProgress)
