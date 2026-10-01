@@ -16,8 +16,8 @@ protocol JellyfinServicing: ObservableObject {
     func fetchSongIdsSince(_ date: Date) async throws -> [String: String]
     func fetchAlbum(id albumId: String) async throws -> Album?
     func fetchSongs(for albumId: String) async throws -> [Song]
-    func getAssetUrl(itemId: String) -> String?
-    func getAssetUrl(for song: Song) -> String?
+    func getAssetURLRequest(itemId: String) -> URLRequest?
+    func getAssetURLRequest(for song: Song) -> URLRequest?
 }
 
 enum JellyfinError: Error {
@@ -103,7 +103,9 @@ class JellyfinService: JellyfinServicing {
     private func createRequest(url: URL, method: String = "GET", includeToken: Bool = false) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.setValue(getAuthorizationHeader(includeToken: includeToken), forHTTPHeaderField: "X-Emby-Authorization")
+        let authHeader = getAuthorizationHeader(includeToken: includeToken)
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        request.setValue(authHeader, forHTTPHeaderField: "X-Emby-Authorization")
         return request
     }
 
@@ -132,9 +134,9 @@ class JellyfinService: JellyfinServicing {
         }
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let accessToken = json["AccessToken"] as? String,
-              let user = json["User"] as? [String: Any],
-              let userId = user["Id"] as? String else {
+            let accessToken = json["AccessToken"] as? String,
+            let user = json["User"] as? [String: Any],
+            let userId = user["Id"] as? String else {
             throw JellyfinError.decodingError(NSError(domain: "JellyfinService", code: -1))
         }
 
@@ -481,18 +483,26 @@ class JellyfinService: JellyfinServicing {
         return "\(serverUrl)/Items/\(itemId)/Images/Primary?maxHeight=500&quality=90&format=Jpg"
     }
 
-    func getAssetUrl(itemId: String) -> String? {
+    func getAssetURLRequest(itemId: String) -> URLRequest? {
         guard let serverUrl = authState.serverUrl,
-              let token = authState.accessToken,
-              let encodedToken = token.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
+            authState.accessToken != nil else { return nil }
 
-        guard let bitrate = audioQuality.bitrate else {
-            return "\(serverUrl)/Audio/\(itemId)/stream?static=true&api_key=\(encodedToken)"
+        let url: String
+        if let bitrate = audioQuality.bitrate {
+            url = "\(serverUrl)/Audio/\(itemId)/universal?audioCodec=aac&container=m4a&transcodingContainer=m4a&maxStreamingBitrate=\(bitrate)&transcodingProtocol=http"
+        } else {
+            url = "\(serverUrl)/Audio/\(itemId)/stream?static=true"
         }
-        return "\(serverUrl)/Audio/\(itemId)/universal?audioCodec=aac&container=m4a&transcodingContainer=m4a&maxStreamingBitrate=\(bitrate)&transcodingProtocol=http&api_key=\(encodedToken)"
+
+        guard let assetUrl = URL(string: url) else { return nil }
+        var request = URLRequest(url: assetUrl)
+        let authHeader = getAuthorizationHeader(includeToken: true)
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        request.setValue(authHeader, forHTTPHeaderField: "X-Emby-Authorization")
+        return request
     }
     
-    func getAssetUrl(for song: Song) -> String? {
-        return getAssetUrl(itemId: song.id)
+    func getAssetURLRequest(for song: Song) -> URLRequest? {
+        return getAssetURLRequest(itemId: song.id)
     }
 }

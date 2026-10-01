@@ -213,40 +213,33 @@ class DownloadManager: NSObject, DownloadManaging {
     // Supports both async/await (for playback) and fire-and-forget (for batch downloads)
     @discardableResult
     private func downloadSong(_ song: Song, awaitCompletion: Bool = false) async throws -> URL {
-        // Generate asset URL dynamically with current quality settings
-        guard let assetUrlString = jellyfinService.getAssetUrl(for: song),
-              let assetUrl = URL(string: assetUrlString) else {
-            throw NSError(domain: "DownloadManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not generate assetUrl"])
+        guard let request = jellyfinService.getAssetURLRequest(for: song) else {
+            throw NSError(domain: "DownloadManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not generate asset URL request"])
         }
 
-        // Check if already cached (regardless of extension/quality)
         if let existingUrl = existingStorageUrl(for: song.id) {
             return existingUrl
         }
 
-        // Initialize progress immediately so that UI updates right away
         await MainActor.run {
             downloadProgress[song.id] = 0.0
             downloadingSongIds.insert(song.id)
         }
 
-        // If we need to await completion, use continuation
         if awaitCompletion {
             return try await withCheckedThrowingContinuation { continuation in
                 downloadContinuations[song.id] = continuation
 
-                let downloadTask = urlSession.downloadTask(with: assetUrl)
+                let downloadTask = urlSession.downloadTask(with: request)
                 downloadTask.taskDescription = song.id
                 activeDownloads[song.id] = downloadTask
                 downloadTask.resume()
             }
         } else {
-            // Fire-and-forget for batch downloads
-            let downloadTask = urlSession.downloadTask(with: assetUrl)
+            let downloadTask = urlSession.downloadTask(with: request)
             downloadTask.taskDescription = song.id
             activeDownloads[song.id] = downloadTask
             downloadTask.resume()
-            // Just return a placeholder, actual path is determined when download completes
             return songsDirectory.appendingPathComponent(song.id)
         }
     }
@@ -496,7 +489,9 @@ class DownloadManager: NSObject, DownloadManaging {
 
         await cacheAlbumArtIfNeeded(albumId: song.albumId, imageUrl: song.imageUrl)
 
-        return try await downloadSong(song, awaitCompletion: true)
+        let result = try await downloadSong(song, awaitCompletion: true)
+        print("[Download] downloadAndCache completed for songId=\(song.id), url=\(result.path), isCached=\(isCached(songId: song.id))")
+        return result
     }
 
     private func cacheAlbumArtIfNeeded(albumId: String, imageUrl: String?) async {
@@ -856,13 +851,18 @@ class DownloadManager: NSObject, DownloadManaging {
 
 extension DownloadManager: URLSessionDownloadDelegate {
     nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        let songId = downloadTask.taskDescription ?? "unknown"
+
+        let responseHeaders = (downloadTask.response as? HTTPURLResponse)?.allHeaderFields ?? [:]
+        print("[Download] didFinishDownloadingTo for songId=\(songId): location=\(location.lastPathComponent), mimeType=\(downloadTask.response?.mimeType ?? "nil"), contentLength=\(downloadTask.countOfBytesReceived), headers=\(responseHeaders)")
+
         guard let songId = downloadTask.taskDescription else { return }
 
         let fileExtension: String
         if let mimeType = downloadTask.response?.mimeType {
             fileExtension = Self.extensionForMimeType(mimeType)
         } else if let suggestedName = downloadTask.response?.suggestedFilename,
-                  let ext = suggestedName.split(separator: ".").last {
+                   let ext = suggestedName.split(separator: ".").last {
             fileExtension = String(ext).lowercased()
         } else {
             fileExtension = "m4a"
@@ -877,6 +877,7 @@ extension DownloadManager: URLSessionDownloadDelegate {
                 try fm.removeItem(at: destinationUrl)
             }
             try fm.moveItem(at: location, to: destinationUrl)
+            print("[Download] File moved to \(destinationUrl.lastPathComponent), size=\(try? fm.attributesOfItem(atPath: destinationUrl.path)[.size] ?? 0)")
 
             Task { @MainActor in
                 self.completedSongs.insert(songId)
@@ -887,6 +888,7 @@ extension DownloadManager: URLSessionDownloadDelegate {
                 self.activeDownloadCount = self.activeDownloads.count
 
                 if let continuation = self.downloadContinuations.removeValue(forKey: songId) {
+                    print("[Download] Resuming continuation for songId=\(songId) with url=\(destinationUrl.path)")
                     continuation.resume(returning: destinationUrl)
                 }
 
@@ -894,6 +896,7 @@ extension DownloadManager: URLSessionDownloadDelegate {
                 self.cachedContentVersion += 1
             }
         } catch {
+            print("[Download] File move failed for songId=\(songId): \(error), location=\(location.path)")
             Task { @MainActor in
                 if let continuation = self.downloadContinuations.removeValue(forKey: songId) {
                     continuation.resume(throwing: error)
@@ -913,6 +916,11 @@ extension DownloadManager: URLSessionDownloadDelegate {
 
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let error = error else { return }
+        let songId = task.taskDescription ?? "unknown"
+        let downloadTask = task as? URLSessionDownloadTask
+        let statusCode = (downloadTask?.response as? HTTPURLResponse)?.statusCode ?? 0
+        print("[Download] didCompleteWithError for songId=\(songId): error=\(error), statusCode=\(statusCode), requestURL=\(downloadTask?.originalRequest?.url?.absoluteString ?? "nil")")
+
         guard let songId = task.taskDescription else { return }
 
         Task { @MainActor in
