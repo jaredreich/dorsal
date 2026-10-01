@@ -105,6 +105,7 @@ class JellyfinService: JellyfinServicing {
         request.httpMethod = method
         let authHeader = getAuthorizationHeader(includeToken: includeToken)
         request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        // TODO: Remove X-Emby-Authorization once min supported Jellyfin version is 10.8+
         request.setValue(authHeader, forHTTPHeaderField: "X-Emby-Authorization")
         return request
     }
@@ -498,6 +499,7 @@ class JellyfinService: JellyfinServicing {
         var request = URLRequest(url: assetUrl)
         let authHeader = getAuthorizationHeader(includeToken: true)
         request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        // TODO: Remove X-Emby-Authorization once min supported Jellyfin version is 10.8+
         request.setValue(authHeader, forHTTPHeaderField: "X-Emby-Authorization")
         return request
     }
