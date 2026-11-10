@@ -1,6 +1,5 @@
 import UIKit
 import AVFoundation
-import MediaPlayer
 import Intents
 
 class AppDelegate: NSObject, UIApplicationDelegate {
@@ -8,28 +7,15 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // Configure audio session for playback
+        // Configure but don't activate; an idle active session makes iOS treat
+        // the app as playing. Activation happens on play/prepare.
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
-            try AVAudioSession.sharedInstance().setActive(true)
         } catch {
             print("Failed to configure audio session: \(error)")
         }
 
-        // Make app discoverable by CarPlay
-        setupRemoteCommandCenter()
-
         return true
-    }
-
-    private func setupRemoteCommandCenter() {
-        let commandCenter = MPRemoteCommandCenter.shared()
-
-        // Enable basic commands so CarPlay can discover the app
-        commandCenter.playCommand.isEnabled = true
-        commandCenter.pauseCommand.isEnabled = true
-        commandCenter.nextTrackCommand.isEnabled = true
-        commandCenter.previousTrackCommand.isEnabled = true
     }
 
     func application(_ application: UIApplication, handlerFor intent: INIntent) -> Any? {

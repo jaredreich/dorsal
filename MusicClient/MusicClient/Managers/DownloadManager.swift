@@ -213,12 +213,13 @@ class DownloadManager: NSObject, DownloadManaging {
     // Supports both async/await (for playback) and fire-and-forget (for batch downloads)
     @discardableResult
     private func downloadSong(_ song: Song, awaitCompletion: Bool = false) async throws -> URL {
-        guard let request = jellyfinService.getAssetURLRequest(for: song) else {
-            throw NSError(domain: "DownloadManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not generate asset URL request"])
-        }
-
+        // Check the cache first; cold CarPlay starts may not have auth yet.
         if let existingUrl = existingStorageUrl(for: song.id) {
             return existingUrl
+        }
+
+        guard let request = jellyfinService.getAssetURLRequest(for: song) else {
+            throw NSError(domain: "DownloadManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not generate asset URL request"])
         }
 
         await MainActor.run {
@@ -877,7 +878,8 @@ extension DownloadManager: URLSessionDownloadDelegate {
                 try fm.removeItem(at: destinationUrl)
             }
             try fm.moveItem(at: location, to: destinationUrl)
-            print("[Download] File moved to \(destinationUrl.lastPathComponent), size=\(try? fm.attributesOfItem(atPath: destinationUrl.path)[.size] ?? 0)")
+            let fileSize = ((try? fm.attributesOfItem(atPath: destinationUrl.path))?[.size] as? NSNumber)?.int64Value ?? 0
+            print("[Download] File moved to \(destinationUrl.lastPathComponent), size=\(fileSize)")
 
             Task { @MainActor in
                 self.completedSongs.insert(songId)

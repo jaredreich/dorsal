@@ -204,7 +204,7 @@ struct LibraryView: View {
         }
         .onAppear {
             albumStateManager.loadCachedAlbums()
-            audioPlayer.restorePersistedState()
+            audioPlayer.restorePersistedState(preservePlaybackIntent: true)
         }
         .onChange(of: searchText) { newValue in
             updateSongSearchIndex(query: newValue)

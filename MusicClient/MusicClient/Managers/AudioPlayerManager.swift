@@ -61,7 +61,8 @@ class AudioPlayerManager: NSObject, ObservableObject {
 
     private let playbackQueue = PlaybackQueue()
 
-    @Published var isPlaying: Bool = false
+    @Published private(set) var isPlaying: Bool = false
+    @Published private(set) var isPlaybackPrepared: Bool = false
     @Published var isLoading: Bool = false
     var currentTime: TimeInterval = 0
     @Published var duration: TimeInterval = 0
@@ -87,18 +88,30 @@ class AudioPlayerManager: NSObject, ObservableObject {
     private let equalizerActor = EqualizerActor(frequencies: EqualizerPreset.bandFrequencies)
     private var timeTracker: Timer?
     private var pendingSeekTime: TimeInterval?
-    private var lastArtworkUrl: String?
+    private var nowPlayingArtwork: MPMediaItemArtwork?
+    private var nowPlayingArtworkKey: String?
+    private var loadingArtworkKey: String?
+    private var audioSessionActive = false
 
     private struct PersistedPlaybackState: Codable {
         let albumId: String
         let songId: String
         let currentTime: TimeInterval
+        // Optional for backward compatibility; paused restores ignore it.
+        let wasPlaying: Bool?
     }
     private var hasTriggeredPrefetch: Bool = false
     private var nextEnqueuedSongId: String?
     private var pendingPlaybackSongId: String?
-    private var pendingAutoResume: Bool = false
-    private var wasPlayingBeforeInterruption: Bool = false
+    private var preparingSongId: String?
+    private(set) var desiredPlaying = false
+    private var loadGeneration = 0
+    // Suppresses play while a paused restore is loading.
+    private var isPausedRestoreInProgress = false
+    private var preservedPlaybackIntent: Bool?
+
+    private var isPreparingPlayback: Bool { preparingSongId != nil }
+
 
     private let downloadManager: any DownloadManaging
     private let searchManager: any SearchManaging
@@ -116,17 +129,58 @@ class AudioPlayerManager: NSObject, ObservableObject {
         setupAudioSession()
         setupEqualizer()
         setupRemoteTransportControls()
-        setupInterruptionHandling()
+        updateRemoteCommandAvailability()
+        setupNotifications()
         startTimeTracking()
     }
 
     private func setupAudioSession() {
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
+            // Don't activate at launch; an idle active session makes iOS treat
+            // the app as playing. Activation happens on play/prepare.
         } catch {
             print("Failed to configure audio session: \(error)")
         }
+    }
+
+    @discardableResult
+    func activateAudioSession() -> Bool {
+        guard (try? AVAudioSession.sharedInstance().setActive(true)) != nil else {
+            return false
+        }
+        audioSessionActive = true
+        return true
+    }
+
+    // `AudioPlayer.pause()` leaves AVAudioEngine running, so iOS still treats
+    // the app as playing. Stop the engine instead; keep the session active so
+    // Now Playing and remote commands stay with this app.
+    private func suspendEngineIfPaused(keepEngineRunning: Bool = false) {
+        guard currentSong != nil, !isPlaying, !isPreparingPlayback else { return }
+
+        if keepEngineRunning {
+            // Keep the first play after a paused restore instant.
+            updateNowPlayingInfo()
+            return
+        }
+
+        if audioPlayer.engineIsRunning {
+            if let time = audioPlayer.time?.current, time.isFinite {
+                currentTime = time
+            }
+            audioPlayer.stop()
+            nextEnqueuedSongId = nil
+            isPlaybackPrepared = false
+        }
+
+        updateNowPlayingInfo()
+    }
+
+    private func deactivateAudioSession() {
+        guard audioSessionActive else { return }
+        try? AVAudioSession.sharedInstance().setActive(false)
+        audioSessionActive = false
     }
 
     private func setupEqualizer() {
@@ -212,20 +266,44 @@ class AudioPlayerManager: NSObject, ObservableObject {
     }
 
     func play(song: Song, autoPlay: Bool = true) {
+        pendingSeekTime = nil
+        isPausedRestoreInProgress = false
+        prepare(song: song, shouldPlayWhenReady: autoPlay)
+    }
+
+    func play(queue: [Song], startIndex: Int = 0, autoPlay: Bool = true) {
+        isPausedRestoreInProgress = false
+        startPlayback(queue: queue, startIndex: startIndex, shouldPlayWhenReady: autoPlay)
+    }
+
+    private func startPlayback(queue: [Song], startIndex: Int, shouldPlayWhenReady: Bool, seekTime: TimeInterval? = nil) {
+        playbackQueue.setQueue(queue, startIndex: startIndex)
+        guard let song = playbackQueue.currentSong else { return }
+        pendingSeekTime = seekTime
+        prepare(song: song, shouldPlayWhenReady: shouldPlayWhenReady)
+    }
+
+    private func prepare(song: Song, shouldPlayWhenReady: Bool) {
+        loadGeneration += 1
+        let generation = loadGeneration
+
+        preparingSongId = song.id
+        isPlaybackPrepared = false
+        desiredPlaying = shouldPlayWhenReady
+        pendingPlaybackSongId = nil
+        activateAudioSession()
+        updateRemoteCommandAvailability()
+
         let isCached = downloadManager.isCached(songId: song.id)
 
         if isCached {
-            // Song is ready, stop current playback immediately
+            isLoading = false
             audioPlayer.stop()
             audioPlayer.clearQueue()
             nextEnqueuedSongId = nil
             pendingPlaybackSongId = nil
             hasTriggeredPrefetch = false
-            if !autoPlay { isPlaying = false }
-            currentTime = 0
-            duration = 0
         } else {
-            // Song needs to download, keep current playback going, just show loading
             isLoading = true
             hasTriggeredPrefetch = false
         }
@@ -235,16 +313,13 @@ class AudioPlayerManager: NSObject, ObservableObject {
         Task {
             do {
                 let cachedUrl = try await downloadManager.downloadAndCache(song)
-                guard self.playbackQueue.currentSong?.id == songId else { return }
+                guard self.loadGeneration == generation else { return }
 
-                // Stop current playback now that the new song is ready
                 if !isCached {
                     self.audioPlayer.stop()
                     self.audioPlayer.clearQueue()
                     self.nextEnqueuedSongId = nil
                     self.pendingPlaybackSongId = nil
-                    self.currentTime = 0
-                    self.duration = 0
                 }
 
                 self.isLoading = false
@@ -255,42 +330,37 @@ class AudioPlayerManager: NSObject, ObservableObject {
 
                 self.duration = self.audioPlayer.time?.total ?? song.duration ?? 0
 
-                if autoPlay {
-                    self.pendingAutoResume = false
-                    self.isPlaying = true
-                } else if self.pendingAutoResume {
-                    // CarPlay restore (engine is already playing, seek while playing
-                    // for reliable seek position, then surface the playing state)
-                    self.pendingAutoResume = false
-                    if let seekTime = self.pendingSeekTime {
-                        self.seek(to: seekTime)
-                        self.pendingSeekTime = nil
-                    }
-                    self.isPlaying = true
+                if let seekTime = self.pendingSeekTime {
+                    self.audioPlayer.seek(time: seekTime)
+                    self.currentTime = seekTime
+                    self.pendingSeekTime = nil
                 } else {
-                    // Seek while engine is still playing (more reliable in SFBAudioEngine),
-                    // then pause at the correct position
-                    if let seekTime = self.pendingSeekTime {
-                        self.seek(to: seekTime)
-                        self.pendingSeekTime = nil
-                    }
-                    self.audioPlayer.pause()
-                    self.isPlaying = false
+                    self.currentTime = 0
                 }
 
-                self.updateNowPlayingInfo()
-                self.savePlaybackState()
-                downloadManager.addToRecentlyPlayed(albumId: song.albumId)
-            } catch {
-                self.isLoading = false
-            }
-        }
-    }
+                if !self.desiredPlaying {
+                    self.audioPlayer.pause()
+                } else {
+                    self.preservedPlaybackIntent = nil
+                }
 
-    func play(queue: [Song], startIndex: Int = 0, autoPlay: Bool = true) {
-        playbackQueue.setQueue(queue, startIndex: startIndex)
-        if let song = playbackQueue.currentSong {
-            play(song: song, autoPlay: autoPlay)
+                self.isPlaybackPrepared = true
+                if self.preparingSongId == songId { self.preparingSongId = nil }
+                let keepEngineRunning = self.isPausedRestoreInProgress
+                self.isPausedRestoreInProgress = false
+                self.syncPlaybackStateFromEngine()
+                self.savePlaybackState()
+                self.suspendEngineIfPaused(keepEngineRunning: keepEngineRunning)
+                self.downloadManager.addToRecentlyPlayed(albumId: song.albumId)
+            } catch {
+                guard self.loadGeneration == generation else { return }
+                self.isLoading = false
+                self.isPlaybackPrepared = false
+                self.pendingPlaybackSongId = nil
+                if self.preparingSongId == songId { self.preparingSongId = nil }
+                self.isPausedRestoreInProgress = false
+                self.syncPlaybackStateFromEngine()
+            }
         }
     }
 
@@ -300,7 +370,7 @@ class AudioPlayerManager: NSObject, ObservableObject {
     }
 
     func togglePlayPause() {
-        if isPlaying {
+        if audioPlayer.isPlaying {
             pause()
         } else {
             resume()
@@ -308,69 +378,131 @@ class AudioPlayerManager: NSObject, ObservableObject {
     }
 
     func pause() {
+        desiredPlaying = false
+        isPausedRestoreInProgress = false
+        preservedPlaybackIntent = nil
         audioPlayer.pause()
-        isPlaying = false
-        updateNowPlayingInfo()
+        if let time = audioPlayer.time?.current, time.isFinite {
+            currentTime = time
+        }
+        syncPlaybackStateFromEngine()
+        savePlaybackState()
+        suspendEngineIfPaused()
     }
 
-    func resume() {
-        try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
-        audioPlayer.resume()
-        isPlaying = true
-        updateNowPlayingInfo()
+    @discardableResult
+    func resume() -> Bool {
+        guard let song = currentSong else {
+            return false
+        }
+
+        if isPreparingPlayback {
+            if isPausedRestoreInProgress {
+                return false
+            }
+            desiredPlaying = true
+            preservedPlaybackIntent = nil
+            return true
+        }
+
+        activateAudioSession()
+
+        let engineAlive = audioPlayer.engineIsRunning && audioPlayer.time?.current != nil
+
+        isPausedRestoreInProgress = false
+        preservedPlaybackIntent = nil
+        desiredPlaying = true
+
+        if engineAlive {
+            audioPlayer.resume()
+            syncPlaybackStateFromEngine()
+            if isPlaying {
+                savePlaybackState()
+            } else {
+                pendingSeekTime = currentTime > 0 ? currentTime : nil
+                prepare(song: song, shouldPlayWhenReady: true)
+            }
+        } else {
+            pendingSeekTime = currentTime > 0 ? currentTime : nil
+            prepare(song: song, shouldPlayWhenReady: true)
+        }
+        return true
     }
 
     func verifyAndRestorePlaybackState() {
-        guard isPlaying, let song = currentSong else { return }
+        guard desiredPlaying, currentSong != nil, !isPreparingPlayback else { return }
 
-        let isEngineRunning = audioPlayer.time != nil && audioPlayer.time?.current != nil
+        let engineAlive = audioPlayer.engineIsRunning && audioPlayer.time?.current != nil
+        if engineAlive {
+            syncPlaybackStateFromEngine()
+            return
+        }
 
-        if !isEngineRunning {
-            let savedCurrentTime = currentTime
-            let savedDuration = duration
-            let index = playbackQueue.currentIndex
-            let queue = playbackQueue.queue
+        let savedCurrentTime = currentTime
+        let savedDuration = duration
+        let index = playbackQueue.currentIndex
+        let queue = playbackQueue.queue
 
-            guard !queue.isEmpty, index < queue.count else {
-                isPlaying = false
-                return
-            }
+        guard !queue.isEmpty, index < queue.count else {
+            syncPlaybackStateFromEngine()
+            return
+        }
 
-            play(song: queue[index], autoPlay: true)
+        isPausedRestoreInProgress = false
+        pendingSeekTime = savedCurrentTime > 0 ? savedCurrentTime : nil
+        prepare(song: queue[index], shouldPlayWhenReady: true)
 
-            if savedCurrentTime > 0 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    self.seek(to: savedCurrentTime)
-                }
-            }
+        if savedDuration > 0 && duration == 0 {
+            duration = savedDuration
+        }
+    }
 
-            if savedDuration > 0 && self.duration == 0 {
-                self.duration = savedDuration
-            }
+    // MARK: - Audio Route
+
+    private var isCarAudioRouteActive: Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .carAudio }
+    }
+
+    @objc private func handleRouteChange(_ notification: Notification) {
+
+        if isCarAudioRouteActive {
+            activateAudioSession()
+            syncPlaybackStateFromEngine()
+        } else if !isPlaying {
+            suspendEngineIfPaused()
         }
     }
 
     func seek(to time: TimeInterval, completion: (() -> Void)? = nil) {
-        if let currentPos = audioPlayer.time?.current, abs(currentPos - time) < 0.1 {
+        let clamped = max(0, time)
+        if let currentPos = audioPlayer.time?.current, abs(currentPos - clamped) < 0.1 {
+            currentTime = clamped
+            syncPlaybackStateFromEngine()
             completion?()
             return
         }
-        currentTime = time
-        audioPlayer.seek(time: time)
-        updateNowPlayingInfo()
+        currentTime = clamped
+        // No decoder while stopped/loading; apply this on resume.
+        if isPreparingPlayback || !audioPlayer.engineIsRunning {
+            pendingSeekTime = clamped
+        }
+        audioPlayer.seek(time: clamped)
+        syncPlaybackStateFromEngine()
+        savePlaybackState()
         completion?()
     }
 
     func playNext() {
+        guard hasNext else { return }
         if let nextSong = playbackQueue.next() {
-            play(song: nextSong, autoPlay: isPlaying)
+            play(song: nextSong, autoPlay: desiredPlaying)
         }
     }
 
     func playPrevious() {
         if currentTime < 2 {
             if let previousSong = playbackQueue.previous() {
-                play(song: previousSong, autoPlay: isPlaying)
+                play(song: previousSong, autoPlay: desiredPlaying)
             } else {
                 seek(to: 0)
             }
@@ -380,17 +512,31 @@ class AudioPlayerManager: NSObject, ObservableObject {
     }
 
     func stop() {
+        loadGeneration += 1
+        preparingSongId = nil
+        desiredPlaying = false
         audioPlayer.stop()
         audioPlayer.clearQueue()
         nextEnqueuedSongId = nil
+        pendingPlaybackSongId = nil
+        pendingSeekTime = nil
         isPlaying = false
         isLoading = false
         currentTime = 0
         duration = 0
         currentSong = nil
-        lastArtworkUrl = nil
+        nowPlayingArtwork = nil
+        nowPlayingArtworkKey = nil
+        loadingArtworkKey = nil
+        isPlaybackPrepared = false
+        isPausedRestoreInProgress = false
+        preservedPlaybackIntent = nil
         playbackQueue.clear()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        updateRemoteCommandAvailability()
+        if !isCarAudioRouteActive {
+            deactivateAudioSession()
+        }
         UserDefaults.standard.removeObject(forKey: "playbackState")
     }
 
@@ -399,34 +545,105 @@ class AudioPlayerManager: NSObject, ObservableObject {
             UserDefaults.standard.removeObject(forKey: "playbackState")
             return
         }
-        let state = PersistedPlaybackState(albumId: song.albumId, songId: song.id, currentTime: currentTime)
+        let state = PersistedPlaybackState(
+            albumId: song.albumId,
+            songId: song.id,
+            currentTime: currentTime,
+            wasPlaying: isPlaying || (preservedPlaybackIntent ?? false)
+        )
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: "playbackState")
         }
     }
 
-    func restorePersistedState(resumeAfterLoad: Bool = false) {
-        guard currentSong == nil,
-              let data = UserDefaults.standard.data(forKey: "playbackState"),
-              let state = try? JSONDecoder().decode(PersistedPlaybackState.self, from: data) else { return }
+    func restorePersistedState(resumeAfterLoad: Bool = false, suppressAutomaticPlay: Bool = false, preservePlaybackIntent: Bool = false) {
+        guard currentSong == nil else {
+            return
+        }
+        guard let data = UserDefaults.standard.data(forKey: "playbackState"),
+              let state = try? JSONDecoder().decode(PersistedPlaybackState.self, from: data) else {
+            return
+        }
 
         let songs = searchManager.getSongsForAlbum(state.albumId).sortedByTrack()
-        guard let index = songs.firstIndex(where: { $0.id == state.songId }) else { return }
+        guard let index = songs.firstIndex(where: { $0.id == state.songId }) else {
+            return
+        }
 
-        if state.currentTime > 0 { pendingSeekTime = state.currentTime }
-        pendingAutoResume = resumeAfterLoad
-        play(queue: songs, startIndex: index, autoPlay: false)
+
+        // Publish metadata before loading so Now Playing isn't blank.
+        let song = songs[index]
+        currentSong = song
+        currentTime = state.currentTime
+        if let songDuration = song.duration, songDuration > 0 { duration = songDuration }
+        activateAudioSession()
+        updateNowPlayingInfo()
+
+        isPausedRestoreInProgress = suppressAutomaticPlay && !resumeAfterLoad
+        if resumeAfterLoad {
+            preservedPlaybackIntent = nil
+        } else if preservePlaybackIntent {
+            preservedPlaybackIntent = state.wasPlaying ?? false
+        } else {
+            preservedPlaybackIntent = nil
+        }
+        startPlayback(
+            queue: songs,
+            startIndex: index,
+            shouldPlayWhenReady: resumeAfterLoad,
+            seekTime: state.currentTime > 0 ? state.currentTime : nil
+        )
+    }
+
+    func persistPlaybackState() {
+        guard currentSong != nil else { return }
+        savePlaybackState()
+    }
+
+    func preparePausedPlayback() {
+        preservedPlaybackIntent = nil
+        desiredPlaying = false
+
+        if isPreparingPlayback {
+            isPausedRestoreInProgress = true
+            return
+        }
+
+        guard let song = currentSong else {
+            restorePersistedState(resumeAfterLoad: false, suppressAutomaticPlay: true)
+            return
+        }
+
+        if audioPlayer.engineIsRunning, audioPlayer.time?.current != nil {
+            audioPlayer.pause()
+            isPlaybackPrepared = true
+            syncPlaybackStateFromEngine()
+            savePlaybackState()
+            return
+        }
+
+        let savedCurrentTime = currentTime
+        let savedDuration = duration
+
+        isPausedRestoreInProgress = true
+        pendingSeekTime = savedCurrentTime > 0 ? savedCurrentTime : nil
+        prepare(song: song, shouldPlayWhenReady: false)
+
+        if savedDuration > 0 { duration = savedDuration }
     }
 
     private func startTimeTracking() {
         timeTracker = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, self.isPlaying else { return }
+                guard let self else { return }
+
+                guard self.audioPlayer.isPlaying || self.isPlaying else { return }
 
                 if let time = self.audioPlayer.time {
                     if let current = time.current { self.currentTime = current }
                     if let total = time.total, total != self.duration { self.duration = total }
                 }
+
                 self.checkAndPrefetchNextSong()
             }
         }
@@ -450,83 +667,150 @@ class AudioPlayerManager: NSObject, ObservableObject {
         }
     }
 
+    private func syncPlaybackStateFromEngine() {
+        let engineIsPlaying = audioPlayer.isPlaying
+
+        if isPlaying != engineIsPlaying {
+            isPlaying = engineIsPlaying
+        }
+
+        if !isPreparingPlayback, currentSong != nil {
+            isPlaybackPrepared = audioPlayer.engineIsRunning
+        }
+
+        updateNowPlayingInfo()
+        updateRemoteCommandAvailability()
+    }
+
+    private func updateRemoteCommandAvailability() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        let hasSong = currentSong != nil
+        // Keep scrub enabled while paused; seek is applied when playback resumes.
+        let canSeek = hasSong && !isPreparingPlayback
+
+        commandCenter.playCommand.isEnabled = hasSong
+        commandCenter.pauseCommand.isEnabled = hasSong
+        commandCenter.togglePlayPauseCommand.isEnabled = hasSong
+        commandCenter.nextTrackCommand.isEnabled = hasSong && hasNext
+        commandCenter.previousTrackCommand.isEnabled = hasSong
+        commandCenter.changePlaybackPositionCommand.isEnabled = canSeek
+    }
+
     private func updateNowPlayingInfo() {
-        guard let song = currentSong else { return }
+        guard let song = currentSong else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
 
         let albumArtUrl = downloadManager.getAlbumArtUrl(for: song.albumId)
         let localImageUrl = FileManager.default.fileExists(atPath: albumArtUrl.path) ? albumArtUrl : nil
-        let currentArtworkUrl = localImageUrl?.absoluteString ?? song.imageUrl
-        let artworkChanged = currentArtworkUrl != lastArtworkUrl
+        let artworkKey = localImageUrl?.absoluteString ?? song.imageUrl
 
-        var nowPlayingInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [String: Any]()
-        nowPlayingInfo[MPMediaItemPropertyTitle] = song.name
-        nowPlayingInfo[MPMediaItemPropertyArtist] = song.artistName
-        nowPlayingInfo[MPMediaItemPropertyAlbumTitle] = song.albumName
-        nowPlayingInfo[MPMediaItemPropertyAlbumArtist] = song.artistName
-        nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = duration
-        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
-        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
-        nowPlayingInfo[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
-        MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
+        if artworkKey != nowPlayingArtworkKey {
+            nowPlayingArtwork = nil
+            nowPlayingArtworkKey = nil
+        }
 
-        if artworkChanged {
-            let songId = song.id
-            Task {
-                let image = await imageCache.loadImage(
-                    localUrl: localImageUrl,
-                    remoteUrlString: song.imageUrl,
-                    saveToUrl: nil
-                )
-                guard self.currentSong?.id == songId, let image else { return }
-                let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                // Re-read current info to avoid overwriting newer metadata
-                var latestInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [String: Any]()
-                latestInfo[MPMediaItemPropertyArtwork] = artwork
-                MPNowPlayingInfoCenter.default().nowPlayingInfo = latestInfo
-                self.lastArtworkUrl = currentArtworkUrl
-            }
+        let safeDuration = duration.isFinite && duration > 0 ? duration : 0
+        let safeCurrentTime = currentTime.isFinite ? max(0, currentTime) : 0
+
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: song.name,
+            MPMediaItemPropertyArtist: song.artistName,
+            MPMediaItemPropertyAlbumTitle: song.albumName,
+            MPMediaItemPropertyAlbumArtist: song.artistName,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
+            MPNowPlayingInfoPropertyIsLiveStream: false,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: safeCurrentTime,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
+            // Resume rate, not current rate. Leaving this at 1.0 keeps paused
+            // items playable in system media controls.
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
+        ]
+
+        if safeDuration > 0 {
+            info[MPMediaItemPropertyPlaybackDuration] = safeDuration
+        }
+        if let nowPlayingArtwork {
+            info[MPMediaItemPropertyArtwork] = nowPlayingArtwork
+        }
+
+        // iOS derives play/pause from playbackRate; playbackState is ignored.
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        loadArtworkIfNeeded(for: song, key: artworkKey, localImageUrl: localImageUrl)
+    }
+
+    private func loadArtworkIfNeeded(for song: Song, key: String?, localImageUrl: URL?) {
+        if key == nowPlayingArtworkKey { return }
+        if key == loadingArtworkKey { return }
+        guard let key else { return }
+
+        loadingArtworkKey = key
+
+        let songId = song.id
+        Task {
+            let image = await imageCache.loadImage(
+                localUrl: localImageUrl,
+                remoteUrlString: song.imageUrl,
+                saveToUrl: nil
+            )
+
+            guard self.loadingArtworkKey == key else { return }
+            self.loadingArtworkKey = nil
+
+            guard let image, self.currentSong?.id == songId else { return }
+
+            self.nowPlayingArtwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            self.nowPlayingArtworkKey = key
+            self.updateNowPlayingInfo()
         }
     }
 
     private func setupRemoteTransportControls() {
         let commandCenter = MPRemoteCommandCenter.shared()
         commandCenter.playCommand.addTarget { [weak self] _ in
-            self?.resume()
-            return .success
+            guard let self else { return .commandFailed }
+            let status: MPRemoteCommandHandlerStatus = self.resume() ? .success : .noActionableNowPlayingItem
+            return status
         }
         commandCenter.pauseCommand.addTarget { [weak self] _ in
-            self?.pause()
+            guard let self, self.currentSong != nil else { return .noActionableNowPlayingItem }
+            self.pause()
             return .success
         }
         commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
-            self?.togglePlayPause()
-            return .success
+            guard let self, self.currentSong != nil else { return .noActionableNowPlayingItem }
+            let handled: Bool
+            if self.audioPlayer.isPlaying {
+                self.pause()
+                handled = true
+            } else {
+                handled = self.resume()
+            }
+            let status: MPRemoteCommandHandlerStatus = handled ? .success : .noActionableNowPlayingItem
+            return status
         }
         commandCenter.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self, self.currentSong != nil, self.hasNext else { return .noActionableNowPlayingItem }
             Task { @MainActor [weak self] in self?.playNext() }
             return .success
         }
         commandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self, self.currentSong != nil else { return .noActionableNowPlayingItem }
             Task { @MainActor [weak self] in self?.playPrevious() }
             return .success
         }
         commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let self, self.currentSong != nil else { return .noActionableNowPlayingItem }
             if let event = event as? MPChangePlaybackPositionCommandEvent {
-                self?.seek(to: event.positionTime)
+                self.seek(to: event.positionTime)
                 return .success
             }
             return .commandFailed
         }
     }
 
-    private func setupInterruptionHandling() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleInterruption),
-            name: AVAudioSession.interruptionNotification,
-            object: nil
-        )
+    private func setupNotifications() {
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleAppBackground),
@@ -535,49 +819,50 @@ class AudioPlayerManager: NSObject, ObservableObject {
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(handleAppForeground),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(handleMediaServicesReset),
             name: AVAudioSession.mediaServicesWereResetNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRouteChange),
+            name: AVAudioSession.routeChangeNotification,
             object: nil
         )
     }
 
     @objc private func handleAppBackground() {
+        if let time = audioPlayer.time?.current, time.isFinite {
+            currentTime = time
+        }
+        syncPlaybackStateFromEngine()
         savePlaybackState()
+        suspendEngineIfPaused()
+    }
+
+    @objc private func handleAppForeground() {
+        if let time = audioPlayer.time?.current, time.isFinite {
+            currentTime = time
+        }
+        syncPlaybackStateFromEngine()
+        suspendEngineIfPaused()
     }
 
     @objc private func handleMediaServicesReset() {
-        // The media audio server was reset, this happens when switching audio
-        // output routes (e.g., CarPlay disconnect/reconnect). The AVAudioEngine
-        // and AVAudioSession have been invalidated. We need to rebuild the
-        // audio session and restore playback state.
+        // The reset invalidates the engine/session and can clear Now Playing.
         setupAudioSession()
-        if isPlaying, currentSong != nil {
-            // The engine was playing, verify it's still running, restart if needed
+        syncPlaybackStateFromEngine()
+        suspendEngineIfPaused()
+        if desiredPlaying, currentSong != nil {
             Task { @MainActor in
                 self.verifyAndRestorePlaybackState()
             }
-        }
-    }
-
-    @objc private func handleInterruption(notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
-
-        switch type {
-        case .began:
-            wasPlayingBeforeInterruption = isPlaying
-            pause()
-        case .ended:
-            guard let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
-            try? AVAudioSession.sharedInstance().setActive(true)
-            if AVAudioSession.InterruptionOptions(rawValue: optionsValue).contains(.shouldResume),
-               wasPlayingBeforeInterruption,
-               currentSong != nil {
-                resume()
-            }
-        @unknown default:
-            break
         }
     }
 
@@ -588,6 +873,40 @@ class AudioPlayerManager: NSObject, ObservableObject {
 }
 
 extension AudioPlayerManager: AudioPlayer.Delegate {
+    nonisolated func audioPlayer(_ audioPlayer: AudioPlayer, playbackStateChanged playbackState: AudioPlayer.PlaybackState) {
+        Task { @MainActor in
+            let engineIsPlaying = self.audioPlayer.isPlaying
+
+            if engineIsPlaying && !self.desiredPlaying {
+                // SFBAudioEngine can resume after an interruption; respect the
+                // user's pause instead of publishing a false playing state.
+                self.audioPlayer.pause()
+                if let time = self.audioPlayer.time?.current, time.isFinite {
+                    self.currentTime = time
+                }
+                self.syncPlaybackStateFromEngine()
+                self.savePlaybackState()
+            } else {
+                self.syncPlaybackStateFromEngine()
+                if engineIsPlaying {
+                    self.savePlaybackState()
+                }
+            }
+        }
+    }
+
+    nonisolated func audioPlayer(_ audioPlayer: AudioPlayer, audioSessionInterruption userInfo: [AnyHashable: Any]?) {
+        Task { @MainActor in
+            self.syncPlaybackStateFromEngine()
+        }
+    }
+
+    nonisolated func audioPlayer(_ audioPlayer: AudioPlayer, audioEngineConfigurationChange userInfo: [AnyHashable: Any]?) {
+        Task { @MainActor in
+            self.syncPlaybackStateFromEngine()
+        }
+    }
+
     nonisolated func audioPlayer(_ audioPlayer: AudioPlayer, nowPlayingChanged nowPlaying: (any PCMDecoding)?) {
         Task { @MainActor in
             if self.pendingPlaybackSongId != nil {
@@ -602,9 +921,12 @@ extension AudioPlayerManager: AudioPlayer.Delegate {
                let song = self.playbackQueue.jumpTo(index: index) {
                 self.currentSong = song
                 self.currentTime = 0
+                self.pendingSeekTime = nil
                 self.duration = self.audioPlayer.time?.total ?? song.duration ?? 0
                 self.hasTriggeredPrefetch = false
-                self.updateNowPlayingInfo()
+                self.isPlaybackPrepared = true
+                self.desiredPlaying = self.audioPlayer.isPlaying
+                self.syncPlaybackStateFromEngine()
                 self.savePlaybackState()
                 self.enqueueNextSong()
                 downloadManager.addToRecentlyPlayed(albumId: song.albumId)
@@ -627,6 +949,8 @@ extension AudioPlayerManager: AudioPlayer.Delegate {
                 self.playNext()
             } else if let firstSong = self.playbackQueue.jumpTo(index: 0) {
                 self.play(song: firstSong, autoPlay: false)
+            } else {
+                self.syncPlaybackStateFromEngine()
             }
         }
     }

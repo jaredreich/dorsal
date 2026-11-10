@@ -1,6 +1,5 @@
 import CarPlay
 import Foundation
-import AVFoundation
 import MediaPlayer
 import Combine
 
@@ -12,8 +11,7 @@ class CarPlayTemplateManager: NSObject {
     private let audioPlayer: AudioPlayerManager
     private let imageCache: any ImageCaching
     private let downloadManager: any DownloadManaging
-    private var nowPlayingObserver: NSObjectProtocol?
-    private var playbackObserver: NSObjectProtocol?
+
     private var authStateObserver: AnyCancellable?
     private var shouldNavigateToNowPlayingOnStart = false
     private var playbackStateObserver: AnyCancellable?
@@ -21,6 +19,7 @@ class CarPlayTemplateManager: NSObject {
     private var songItems: [String: CPListItem] = [:]
     private var albumItems: [String: [CPListItem]] = [:]
     private var currentSongObserver: AnyCancellable?
+    private var preparedObserver: AnyCancellable?
     private var tabBarTemplate: CPTabBarTemplate?
 
     init(jellyfinService: JellyfinService? = nil,
@@ -40,40 +39,27 @@ class CarPlayTemplateManager: NSObject {
         self.interfaceController = interfaceController
         self.interfaceController?.delegate = self
 
+        shouldNavigateToNowPlayingOnStart = true
+
         addObservers()
         setupRootTemplate()
         observeAuthStateChanges()
 
-        // Reactivate audio session, it may have been deactivated when the
-        // car was turned off or the app entered the background
-        do {
-            try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
-        } catch {
-            print("Failed to activate audio session on CarPlay connect: \(error)")
-        }
+        audioPlayer.activateAudioSession()
 
-        if audioPlayer.currentSong == nil {
-            // No song in memory, restore from persisted state
-            shouldNavigateToNowPlayingOnStart = true
-            audioPlayer.restorePersistedState(resumeAfterLoad: true)
-        } else if !audioPlayer.isPlaying {
-            // Song exists but isn't playing, resume
-            shouldNavigateToNowPlayingOnStart = true
-            audioPlayer.resume()
-        } else {
-            // Song exists and isPlaying == true, but the audio engine may be
-            // stopped after an audio session interruption
-            shouldNavigateToNowPlayingOnStart = true
-            audioPlayer.verifyAndRestorePlaybackState()
+        // Connecting must not autoplay. Prepare paused unless audio is already
+        // playing on the phone.
+        if !audioPlayer.isPlaying {
+            audioPlayer.preparePausedPlayback()
         }
     }
 
     func disconnect() {
-        nowPlayingObserver = nil
-        playbackObserver = nil
+        audioPlayer.persistPlaybackState()
         authStateObserver = nil
         playbackStateObserver = nil
         currentSongObserver = nil
+        preparedObserver = nil
         loadingSongItem = nil
         songItems.removeAll()
         albumItems.removeAll()
@@ -462,6 +448,7 @@ class CarPlayTemplateManager: NSObject {
     }
 
     private func navigateToNowPlaying() {
+        guard audioPlayer.currentSong != nil else { return }
         guard interfaceController?.topTemplate !== CPNowPlayingTemplate.shared else { return }
         let stack = interfaceController?.templates ?? []
         if stack.contains(where: { $0 === CPNowPlayingTemplate.shared }) {
@@ -481,29 +468,13 @@ class CarPlayTemplateManager: NSObject {
     private func addObservers() {
         CPNowPlayingTemplate.shared.add(self)
 
-        playbackObserver = NotificationCenter.default.addObserver(
-            forName: .MPMusicPlayerControllerPlaybackStateDidChange,
-            object: nil,
-            queue: .main
-        ) { _ in
-            // TODO: handle this (playback state changed)
-        }
-
-        nowPlayingObserver = NotificationCenter.default.addObserver(
-            forName: .MPMusicPlayerControllerNowPlayingItemDidChange,
-            object: nil,
-            queue: .main
-        ) { _ in
-            // TODO: handle this (now playing item changed)
-        }
-
         // Observe isPlaying state to navigate to Now Playing when playback actually starts
         playbackStateObserver = audioPlayer.$isPlaying
             .receive(on: RunLoop.main)
             .sink { [weak self] isPlaying in
                 guard let self = self else { return }
 
-                if isPlaying {
+                if isPlaying, self.audioPlayer.currentSong != nil {
                     // Clear cloud accessory from song item
                     if let loadingItem = self.loadingSongItem {
                         loadingItem.accessoryType = .none
@@ -527,6 +498,20 @@ class CarPlayTemplateManager: NSObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.updatePlayingState()
+            }
+
+        // Navigate only after metadata is ready; earlier leaves CarPlay blank.
+        preparedObserver = audioPlayer.$isPlaybackPrepared
+            .receive(on: RunLoop.main)
+            .sink { [weak self] prepared in
+                guard let self,
+                      prepared,
+                      self.shouldNavigateToNowPlayingOnStart,
+                      self.audioPlayer.currentSong != nil else { return }
+                self.shouldNavigateToNowPlayingOnStart = false
+                Task { @MainActor in
+                    self.navigateToNowPlaying()
+                }
             }
     }
 
