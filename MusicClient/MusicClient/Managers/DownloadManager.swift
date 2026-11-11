@@ -63,8 +63,8 @@ class DownloadManager: NSObject, DownloadManaging {
     private var pendingAlbumDownloads: [String: Set<String>] = [:]
     // Maps song ID to URLSessionDownloadTask (for cancelling individual in-flight song downloads)
     private var activeDownloads: [String: URLSessionDownloadTask] = [:]
-    // Maps song ID to CheckedContinuation (bridges callback-based URLSession to async/await)
-    private var downloadContinuations: [String: CheckedContinuation<URL, Error>] = [:]
+    // Maps song ID to CheckedContinuations (bridges callback-based URLSession to async/await)
+    private var downloadContinuations: [String: [CheckedContinuation<URL, Error>]] = [:]
     // Albums waiting to start downloading (queued but not yet active)
     private var albumDownloadQueue: [(Album, [Song])] = []
     // Whether an album is currently being processed from the queue
@@ -218,28 +218,32 @@ class DownloadManager: NSObject, DownloadManaging {
             return existingUrl
         }
 
+        if activeDownloads[song.id] != nil {
+            guard awaitCompletion else {
+                return songsDirectory.appendingPathComponent(song.id)
+            }
+            return try await withCheckedThrowingContinuation { continuation in
+                downloadContinuations[song.id, default: []].append(continuation)
+            }
+        }
+
         guard let request = jellyfinService.getAssetURLRequest(for: song) else {
             throw NSError(domain: "DownloadManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not generate asset URL request"])
         }
 
-        await MainActor.run {
-            downloadProgress[song.id] = 0.0
-            downloadingSongIds.insert(song.id)
-        }
+        downloadProgress[song.id] = 0.0
+        downloadingSongIds.insert(song.id)
+
+        let downloadTask = urlSession.downloadTask(with: request)
+        downloadTask.taskDescription = song.id
+        activeDownloads[song.id] = downloadTask
 
         if awaitCompletion {
             return try await withCheckedThrowingContinuation { continuation in
-                downloadContinuations[song.id] = continuation
-
-                let downloadTask = urlSession.downloadTask(with: request)
-                downloadTask.taskDescription = song.id
-                activeDownloads[song.id] = downloadTask
+                downloadContinuations[song.id, default: []].append(continuation)
                 downloadTask.resume()
             }
         } else {
-            let downloadTask = urlSession.downloadTask(with: request)
-            downloadTask.taskDescription = song.id
-            activeDownloads[song.id] = downloadTask
             downloadTask.resume()
             return songsDirectory.appendingPathComponent(song.id)
         }
@@ -317,8 +321,10 @@ class DownloadManager: NSObject, DownloadManaging {
         downloadProgress.removeValue(forKey: songId)
         downloadingSongIds.remove(songId)
 
-        if let continuation = downloadContinuations.removeValue(forKey: songId) {
-            continuation.resume(throwing: CancellationError())
+        if let continuations = downloadContinuations.removeValue(forKey: songId) {
+            for continuation in continuations {
+                continuation.resume(throwing: CancellationError())
+            }
         }
     }
 
@@ -889,9 +895,11 @@ extension DownloadManager: URLSessionDownloadDelegate {
                 self.downloadingSongIds.remove(songId)
                 self.activeDownloadCount = self.activeDownloads.count
 
-                if let continuation = self.downloadContinuations.removeValue(forKey: songId) {
-                    print("[Download] Resuming continuation for songId=\(songId) with url=\(destinationUrl.path)")
-                    continuation.resume(returning: destinationUrl)
+                if let continuations = self.downloadContinuations.removeValue(forKey: songId) {
+                    print("[Download] Resuming continuations for songId=\(songId) with url=\(destinationUrl.path)")
+                    for continuation in continuations {
+                        continuation.resume(returning: destinationUrl)
+                    }
                 }
 
                 self.checkPendingAlbumDownloads()
@@ -900,8 +908,10 @@ extension DownloadManager: URLSessionDownloadDelegate {
         } catch {
             print("[Download] File move failed for songId=\(songId): \(error), location=\(location.path)")
             Task { @MainActor in
-                if let continuation = self.downloadContinuations.removeValue(forKey: songId) {
-                    continuation.resume(throwing: error)
+                if let continuations = self.downloadContinuations.removeValue(forKey: songId) {
+                    for continuation in continuations {
+                        continuation.resume(throwing: error)
+                    }
                 }
             }
         }
@@ -931,8 +941,10 @@ extension DownloadManager: URLSessionDownloadDelegate {
             self.downloadingSongIds.remove(songId)
             self.activeDownloadCount = self.activeDownloads.count
 
-            if let continuation = self.downloadContinuations.removeValue(forKey: songId) {
-                continuation.resume(throwing: error)
+            if let continuations = self.downloadContinuations.removeValue(forKey: songId) {
+                for continuation in continuations {
+                    continuation.resume(throwing: error)
+                }
             }
         }
     }

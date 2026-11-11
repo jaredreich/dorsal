@@ -661,7 +661,6 @@ class AudioPlayerManager: NSObject, ObservableObject {
     private func checkAndPrefetchNextSong() {
         let prefetchEnabled = UserDefaults.standard.object(forKey: "prefetchNextSong") as? Bool ?? true
         guard prefetchEnabled, !hasTriggeredPrefetch else { return }
-        guard duration > 0, (duration - currentTime) <= 60 else { return }
         guard hasNext, let nextSong = playbackQueue.queue[safe: currentIndex + 1] else { return }
 
         hasTriggeredPrefetch = true
