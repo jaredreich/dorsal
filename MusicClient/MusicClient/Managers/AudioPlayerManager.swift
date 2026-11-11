@@ -64,7 +64,18 @@ class AudioPlayerManager: NSObject, ObservableObject {
     @Published private(set) var isPlaying: Bool = false
     @Published private(set) var isPlaybackPrepared: Bool = false
     @Published var isLoading: Bool = false
-    var currentTime: TimeInterval = 0
+    private var storedCurrentTime: TimeInterval = 0
+    var currentTime: TimeInterval {
+        get {
+            if audioPlayer.engineIsRunning,
+               let current = audioPlayer.time?.current,
+               current.isFinite {
+                return current
+            }
+            return storedCurrentTime
+        }
+        set { storedCurrentTime = newValue }
+    }
     @Published var duration: TimeInterval = 0
     @Published var currentSong: Song?
     @Published var isEqualizerEnabled: Bool = false {
@@ -86,7 +97,6 @@ class AudioPlayerManager: NSObject, ObservableObject {
 
     private let audioPlayer = AudioPlayer()
     private let equalizerActor = EqualizerActor(frequencies: EqualizerPreset.bandFrequencies)
-    private var timeTracker: Timer?
     private var pendingSeekTime: TimeInterval?
     private var nowPlayingArtwork: MPMediaItemArtwork?
     private var nowPlayingArtworkKey: String?
@@ -138,7 +148,6 @@ class AudioPlayerManager: NSObject, ObservableObject {
         setupRemoteTransportControls()
         updateRemoteCommandAvailability()
         setupNotifications()
-        startTimeTracking()
     }
 
     private func setupAudioSession() {
@@ -641,23 +650,6 @@ class AudioPlayerManager: NSObject, ObservableObject {
         if savedDuration > 0 { duration = savedDuration }
     }
 
-    private func startTimeTracking() {
-        timeTracker = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-
-                guard self.audioPlayer.isPlaying || self.isPlaying else { return }
-
-                if let time = self.audioPlayer.time {
-                    if let current = time.current { self.currentTime = current }
-                    if let total = time.total, total != self.duration { self.duration = total }
-                }
-
-                self.checkAndPrefetchNextSong()
-            }
-        }
-    }
-
     private func checkAndPrefetchNextSong() {
         let prefetchEnabled = UserDefaults.standard.object(forKey: "prefetchNextSong") as? Bool ?? true
         guard prefetchEnabled, !hasTriggeredPrefetch else { return }
@@ -686,8 +678,16 @@ class AudioPlayerManager: NSObject, ObservableObject {
             isPlaybackPrepared = audioPlayer.engineIsRunning
         }
 
+        if let total = audioPlayer.time?.total, total.isFinite, total > 0, total != duration {
+            duration = total
+        }
+
         updateNowPlayingInfo()
         updateRemoteCommandAvailability()
+
+        if engineIsPlaying, currentSong != nil {
+            checkAndPrefetchNextSong()
+        }
     }
 
     private func updateRemoteCommandAvailability() {
@@ -875,7 +875,6 @@ class AudioPlayerManager: NSObject, ObservableObject {
     }
 
     deinit {
-        timeTracker?.invalidate()
         NotificationCenter.default.removeObserver(self)
     }
 }
