@@ -101,7 +101,14 @@ class AudioPlayerManager: NSObject, ObservableObject {
         let wasPlaying: Bool?
     }
     private var hasTriggeredPrefetch: Bool = false
-    private var nextEnqueuedSongId: String?
+    private var nextEnqueuedSongId: String? {
+        didSet {
+            if nextEnqueuedSongId == nil {
+                nextEnqueuedDecoder = nil
+            }
+        }
+    }
+    private var nextEnqueuedDecoder: (any PCMDecoding)?
     private var pendingPlaybackSongId: String?
     private var preparingSongId: String?
     private(set) var desiredPlaying = false
@@ -260,8 +267,10 @@ class AudioPlayerManager: NSObject, ObservableObject {
 
         guard let url = downloadManager.existingStorageUrl(for: nextSong.id) else { return }
         do {
-            try audioPlayer.enqueue(makeDecoder(for: url))
+            let decoder = try makeDecoder(for: url)
+            try audioPlayer.enqueue(decoder)
             nextEnqueuedSongId = nextSong.id
+            nextEnqueuedDecoder = decoder
         } catch {}
     }
 
@@ -914,7 +923,10 @@ extension AudioPlayerManager: AudioPlayer.Delegate {
                 return
             }
 
-            guard let nextId = self.nextEnqueuedSongId else { return }
+            guard let nowPlaying,
+                  let nextId = self.nextEnqueuedSongId,
+                  let nextDecoder = self.nextEnqueuedDecoder,
+                  (nowPlaying as AnyObject) === (nextDecoder as AnyObject) else { return }
             self.nextEnqueuedSongId = nil
 
             if let index = self.playbackQueue.queue.firstIndex(where: { $0.id == nextId }),
