@@ -5,6 +5,10 @@ import Combine
 
 @MainActor
 class CarPlayTemplateManager: NSObject {
+    private enum CarPlayDataChange {
+        case recentlyPlayed
+    }
+
     private var interfaceController: CPInterfaceController?
     private let jellyfinService: JellyfinService
     private let albumStateManager: AlbumStateManager
@@ -13,6 +17,7 @@ class CarPlayTemplateManager: NSObject {
     private let downloadManager: any DownloadManaging
 
     private var authStateObserver: AnyCancellable?
+    private var dataObserver: AnyCancellable?
     private var shouldNavigateToNowPlayingOnStart = false
     private var playbackStateObserver: AnyCancellable?
     private var loadingSongItem: CPListItem?
@@ -21,6 +26,8 @@ class CarPlayTemplateManager: NSObject {
     private var currentSongObserver: AnyCancellable?
     private var preparedObserver: AnyCancellable?
     private var tabBarTemplate: CPTabBarTemplate?
+    private var recentlyPlayedTemplate: CPListTemplate?
+    private var recentlyPlayedAlbumItems: [String: CPListItem] = [:]
 
     init(jellyfinService: JellyfinService? = nil,
          albumStateManager: AlbumStateManager? = nil,
@@ -57,12 +64,15 @@ class CarPlayTemplateManager: NSObject {
     func disconnect() {
         audioPlayer.persistPlaybackState()
         authStateObserver = nil
+        dataObserver = nil
         playbackStateObserver = nil
         currentSongObserver = nil
         preparedObserver = nil
         loadingSongItem = nil
         songItems.removeAll()
         albumItems.removeAll()
+        recentlyPlayedAlbumItems.removeAll()
+        recentlyPlayedTemplate = nil
         tabBarTemplate = nil
         interfaceController = nil
     }
@@ -136,12 +146,14 @@ class CarPlayTemplateManager: NSObject {
 
         // Clear existing album items before recreating tabs
         albumItems.removeAll()
+        recentlyPlayedAlbumItems.removeAll()
 
         // Create tabs for different filters (it appears the carplay max is 4)
-        let libraryTemplate = createLibraryTemplate(filter: FilterOption.library)
-        let latestTemplate = createLibraryTemplate(filter: FilterOption.latestAdded)
-        let recentTemplate = createLibraryTemplate(filter: FilterOption.recentlyPlayed)
-        let offlineTemplate = createLibraryTemplate(filter: FilterOption.offline)
+        let libraryTemplate = makeLibraryTemplate(filter: FilterOption.library)
+        let latestTemplate = makeLibraryTemplate(filter: FilterOption.latestAdded)
+        let recentTemplate = makeLibraryTemplate(filter: FilterOption.recentlyPlayed)
+        let offlineTemplate = makeLibraryTemplate(filter: FilterOption.offline)
+        recentlyPlayedTemplate = recentTemplate
         let templates = [recentTemplate, libraryTemplate, latestTemplate, offlineTemplate]
 
         // Create the tab bar with all the templates
@@ -169,14 +181,29 @@ class CarPlayTemplateManager: NSObject {
         }
     }
 
-    private func createLibraryTemplate(filter: FilterOption) -> CPListTemplate {
+    private func makeLibraryTemplate(filter: FilterOption) -> CPListTemplate {
+        let template = CPListTemplate(
+            title: filter.localizedString,
+            sections: sections(for: filter)
+        )
+
+        // NOTE: device-specific logic
+        if #available(iOS 26.0, *) {
+            template.tabTitle = ""
+        } else {
+            template.tabTitle = filter.localizedString
+        }
+        template.tabImage = UIImage(systemName: filter.icon)
+
+        return template
+    }
+
+    private func sections(for filter: FilterOption) -> [CPListSection] {
         let albums = albumStateManager.getFilteredAlbums(
             filter: filter.rawValue
         )
 
         let shouldUseAlphabeticalSections = (filter == .library || filter == .offline)
-
-        let sections: [CPListSection]
 
         if shouldUseAlphabeticalSections {
             let grouped = Dictionary(grouping: albums) { album -> String in
@@ -216,25 +243,52 @@ class CarPlayTemplateManager: NSObject {
                 return CPListSection(items: items, header: letter, sectionIndexTitle: letter)
             }
 
-            sections = allSections
-        } else {
-            let items = albums.map { album in
-                createAlbumItem(album)
+            return allSections
+        }
+
+        if filter == .recentlyPlayed {
+            return recentlyPlayedSections(albums: albums)
+        }
+
+        let items = albums.map { album in
+            createAlbumItem(album)
+        }
+        return [CPListSection(items: items)]
+    }
+
+    private func recentlyPlayedSections(albums: [Album]) -> [CPListSection] {
+        clearRecentlyPlayedAlbumItems()
+
+        let items = albums.map { album -> CPListItem in
+            let item = createAlbumItem(album)
+            recentlyPlayedAlbumItems[album.id] = item
+            return item
+        }
+
+        return [CPListSection(items: items)]
+    }
+
+    private func clearRecentlyPlayedAlbumItems() {
+        for (albumId, item) in recentlyPlayedAlbumItems {
+            albumItems[albumId]?.removeAll { $0 === item }
+            if albumItems[albumId]?.isEmpty == true {
+                albumItems[albumId] = nil
             }
-            sections = [CPListSection(items: items)]
         }
+        recentlyPlayedAlbumItems.removeAll()
+    }
 
-        let template = CPListTemplate(title: filter.localizedString, sections: sections)
-
-        // NOTE: device-specific logic
-        if #available(iOS 26.0, *) {
-            template.tabTitle = ""
-        } else {
-            template.tabTitle = filter.localizedString
+    private func apply(_ change: CarPlayDataChange) {
+        switch change {
+        case .recentlyPlayed:
+            refreshRecentlyPlayedTemplate()
         }
-        template.tabImage = UIImage(systemName: filter.icon)
+    }
 
-        return template
+    private func refreshRecentlyPlayedTemplate() {
+        guard let recentlyPlayedTemplate else { return }
+        // CarPlay templates are snapshots; reload the tab in place.
+        recentlyPlayedTemplate.updateSections(sections(for: .recentlyPlayed))
     }
 
     private func createAlbumItem(_ album: Album) -> CPListItem {
@@ -467,6 +521,13 @@ class CarPlayTemplateManager: NSObject {
 
     private func addObservers() {
         CPNowPlayingTemplate.shared.add(self)
+
+        dataObserver = downloadManager.recentlyPlayedPublisher
+            .map { _ in CarPlayDataChange.recentlyPlayed }
+            .receive(on: RunLoop.main)
+            .sink { [weak self] change in
+                self?.apply(change)
+            }
 
         // Observe isPlaying state to navigate to Now Playing when playback actually starts
         playbackStateObserver = audioPlayer.$isPlaying

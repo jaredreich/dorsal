@@ -9,6 +9,7 @@ protocol DownloadManaging: ObservableObject {
     var downloadingAlbumIds: Set<String> { get set }
     var pinnedAlbums: Set<String> { get set }
     var recentlyPlayedAlbumIds: [String] { get set }
+    var recentlyPlayedPublisher: AnyPublisher<[String], Never> { get }
     var activeDownloadCount: Int { get set }
     var cachedContentVersion: Int { get set }
     func saveAlbumMetadata(albumId: String, album: Album, songs: [Song], updateIndex: Bool)
@@ -47,6 +48,9 @@ class DownloadManager: NSObject, DownloadManaging {
     @Published var downloadingAlbumIds: Set<String> = []
     @Published var pinnedAlbums: Set<String> = []
     @Published var recentlyPlayedAlbumIds: [String] = []
+    var recentlyPlayedPublisher: AnyPublisher<[String], Never> {
+        $recentlyPlayedAlbumIds.eraseToAnyPublisher()
+    }
     @Published var activeDownloadCount: Int = 0
     @Published var cachedContentVersion: Int = 0
 
@@ -781,11 +785,13 @@ class DownloadManager: NSObject, DownloadManaging {
     }
 
     func addToRecentlyPlayed(albumId: String) {
-        recentlyPlayedAlbumIds.removeAll { $0 == albumId }
-        recentlyPlayedAlbumIds.insert(albumId, at: 0)
-        if recentlyPlayedAlbumIds.count > 100 {
-            recentlyPlayedAlbumIds = Array(recentlyPlayedAlbumIds.prefix(100))
+        var updated = recentlyPlayedAlbumIds
+        updated.removeAll { $0 == albumId }
+        updated.insert(albumId, at: 0)
+        if updated.count > 100 {
+            updated = Array(updated.prefix(100))
         }
+        recentlyPlayedAlbumIds = updated
         saveRecentlyPlayedAlbums()
     }
 
